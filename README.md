@@ -4,7 +4,7 @@
 
 # 台词拾光 · Textlight
 
-RPG Maker 游戏文本提取与阅读工具
+RPG Maker / SRPG Studio 游戏文本提取与阅读工具
 
 支持游戏内文本与 MTool 译文，提供场景浏览、全文搜索和 TXT / Excel 导出。
 
@@ -75,6 +75,7 @@ RPG Maker 游戏文本提取与阅读工具
 | RPG Maker MV | 标准 JSON 数据，通常位于 `data/` 或 `www/data/` |
 | RPG Maker MZ | 标准 JSON 数据，通常位于 `data/` |
 | RPG Maker VX Ace | 已展开的 `Data/*.rvdata2` |
+| SRPG Studio | 引擎 1.140–1.322 的标准未加密 `data.dts` 项目数据 |
 | MTool 翻译文件 | 原文与译文均为字符串的 JSON 字典 |
 
 MTool 字典格式示例：
@@ -87,6 +88,8 @@ MTool 字典格式示例：
 ```
 
 目前不支持 RPG Maker XP / VX、RGSS 加密归档及图片文字识别。特殊封装、非标准插件和运行时动态生成的文字可能无法完整提取。
+
+SRPG Studio 支持地图事件、角色事件、公共事件及数据库文本，读取项目内现存的文字。暂不读取加密项目及外部 `language.dat` / `localization.dat` 翻译层；不同游戏的数据结构仍可能存在兼容性差异。
 
 ### 文本与场景的处理方式
 
@@ -112,7 +115,7 @@ py -3.12 -m venv .venv
 运行测试：
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest -v test_engine test_gui.GuiTests test_rgss
+.\.venv\Scripts\python.exe -m unittest -v test_engine test_gui.GuiTests test_rgss test_srpg
 ```
 
 构建 EXE 与便携包：
@@ -122,7 +125,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe package_release.py
 ```
 
-构建结果分别位于 `dist/` 和 `release/`。界面使用 PySide6，提取与译文匹配位于 `engine.py`，VX Ace 数据解析位于 `rgss.py`，导出逻辑位于 `exporter.py`。
+构建结果分别位于 `dist/` 和 `release/`。界面使用 PySide6，提取与译文匹配位于 `engine.py`，VX Ace 数据解析位于 `rgss.py`，SRPG Studio 适配位于 `srpg.py`，导出逻辑位于 `exporter.py`。SRPG 解析组件随源码保存在 `vendor/srpg/`，无需另行下载。
 
 ## 问题反馈
 
@@ -133,3 +136,5 @@ py -3.12 -m venv .venv
 ## 第三方组件
 
 本项目使用 Python、PySide6 / Qt、openpyxl 和 PyInstaller。便携包附带第三方许可说明；Qt / PySide6 的 LGPL 相关许可证文本见 [`third_party/`](third_party/)。
+
+SRPG Studio 的结构解析使用 [Sinflower/SRPG-ToolBox](https://github.com/Sinflower/SRPG-ToolBox) v0.1.2（MIT）。组件来源、校验值及许可证见 [`vendor/srpg/`](vendor/srpg/)。组件随程序打包，在本地临时目录中读取数据，不执行游戏脚本。

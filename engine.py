@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 from rgss import read_rgss
+from srpg import is_srpg, clean_srpg, extract_srpg
 
 
 STORY = {'对白', '滚动文字', '选项'}
@@ -76,6 +77,8 @@ def game_root(path: str | Path) -> Path | None:
     if base.name.lower() in ('data', 'js'):
         candidates.append(base.parent)
     for root in candidates:
+        if is_srpg(root):
+            return root
         if (root / 'Data' / 'System.rvdata2').is_file() and (root / 'Data' / 'MapInfos.rvdata2').is_file():
             return root
         if (root / 'data' / 'System.json').is_file() and any(
@@ -262,25 +265,27 @@ def extract(path: str, translation: str = '', progress: Callable | None = None,
         if Path(path).suffix.lower() == '.json':
             translation = path
         else:
-            raise ValueError('没有找到可读取的 RPG Maker MV／MZ／VX Ace 数据。请选择游戏主目录、www 目录或翻译 JSON。')
+            raise ValueError('没有找到可读取的 RPG Maker MV／MZ／VX Ace 或 SRPG Studio 数据。请选择游戏主目录、www 目录或翻译 JSON。')
     tick('正在读取翻译文件…')
     tr = Translator(Path(translation) if translation else None)
     result = Result(Path(path).stem, '翻译字典', str(root or Path(path).parent), translation)
+    srpg = bool(root and is_srpg(root))
+    clean_text = clean_srpg if srpg else clean
 
     def add(raw, group, scene_id, scene, category, source, speaker='', context='', untranslated=False):
         if not isinstance(raw, str) or not raw.strip():
             return
         translated, status = ('', '游戏内文本') if untranslated else tr.translate(raw)
-        name_match = NAME_TAG.search(translated or raw)
+        name_match = None if srpg else NAME_TAG.search(translated or raw)
         if name_match:
             speaker = name_match[1]
         elif speaker:
             speaker = tr.find(speaker) or speaker
-        original = clean(raw)
-        display_translation = clean(translated)
+        original = clean_text(raw)
+        display_translation = clean_text(translated)
         if not original and not display_translation:
             return
-        record = Record(len(result.records)+1, group, scene_id, scene, category, clean(speaker),
+        record = Record(len(result.records)+1, group, scene_id, scene, category, clean_text(speaker),
                         original, display_translation, raw, translated, status, source, context)
         record.search = '\n'.join((original, display_translation, raw, translated, record.speaker, scene, context)).casefold()
         result.records.append(record)
@@ -338,7 +343,12 @@ def extract(path: str, translation: str = '', progress: Callable | None = None,
                     add(value, group, sid, scene, category, f'{loc}.parameters{suffix}', context=condition)
             i += 1
 
-    if root:
+    if srpg:
+        result.title, version = extract_srpg(root, add, tick)
+        result.engine = 'SRPG Studio'
+        result.warnings.append(f'SRPG Studio 数据版本 {version}：按地图、事件和事件页整理；场景排列不等于剧情发生顺序。')
+        result.warnings.append('仅读取 data.dts 内的项目文本；未读取外部 language.dat／localization.dat、插件动态生成文字及图片文字。未知控制符保留。')
+    elif root:
         ace = (root / 'Data' / 'System.rvdata2').is_file()
         data_dir = root / ('Data' if ace else 'data')
         extension = '.rvdata2' if ace else '.json'

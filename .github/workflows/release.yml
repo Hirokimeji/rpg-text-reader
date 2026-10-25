@@ -42,7 +42,7 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
-          python -m unittest -v test_engine test_gui.GuiTests test_rgss
+          python -m unittest -v test_engine test_gui.GuiTests test_rgss test_srpg
           Write-Output "Verification process exit code: $LASTEXITCODE"
           if ($LASTEXITCODE -ne 0) { throw 'Verification failed.' }
 
@@ -58,7 +58,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path artifacts -Force | Out-Null
-          Copy-Item -LiteralPath 'release/台词拾光_1.1.2_便携版.zip' -Destination 'artifacts/textlight-1.1.2-windows-x64.zip'
+          Copy-Item -LiteralPath 'release/台词拾光_1.2.0_便携版.zip' -Destination 'artifacts/textlight-1.2.0-windows-x64.zip'
           Copy-Item -LiteralPath 'dist/台词拾光.exe' -Destination 'artifacts/Textlight.exe'
           $checksums = Get-ChildItem -LiteralPath artifacts -File | Sort-Object Name | ForEach-Object {
             $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -66,7 +66,7 @@ jobs:
           }
           Set-Content -LiteralPath artifacts/SHA256SUMS.txt -Value $checksums -Encoding ascii
 
-      - name: Publish v1.1.2 with portable downloads
+      - name: Publish v1.2.0 with portable downloads
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -80,16 +80,16 @@ jobs:
           }
           $release = $null
           try {
-            $release = Invoke-RestMethod -Uri "$base/releases/tags/v1.1.2" -Headers $headers
+            $release = Invoke-RestMethod -Uri "$base/releases/tags/v1.2.0" -Headers $headers
           } catch {
             if ([int]$_.Exception.Response.StatusCode -ne 404) { throw }
           }
           if ($null -eq $release) {
             $payload = @{
-              tag_name = 'v1.1.2'
+              tag_name = 'v1.2.0'
               target_commitish = $env:GITHUB_SHA
-              name = '台词拾光 1.1.2 · Windows 便携版'
-              body = Get-Content -LiteralPath docs/release-notes-1.1.2.md -Raw -Encoding utf8
+              name = '台词拾光 1.2.0 · Windows 便携版'
+              body = Get-Content -LiteralPath docs/release-notes-1.2.0.md -Raw -Encoding utf8
               draft = $true
               prerelease = $false
             } | ConvertTo-Json

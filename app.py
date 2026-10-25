@@ -21,7 +21,7 @@ from exporter import export_records, record_text
 
 
 APP_NAME = '台词拾光'
-APP_VERSION = '1.1.2'
+APP_VERSION = '1.2.0'
 STYLE = '''
 QWidget { font-family: "Microsoft YaHei UI"; font-size: 13px; color: #253347; }
 QMainWindow, QDialog { background: #f3f6fa; }
@@ -271,7 +271,7 @@ class MainWindow(QMainWindow):
         names.addWidget(label('从游戏对白，找到创作的线索', 'muted'))
         top.addLayout(names)
         top.addStretch()
-        self.badge = label('本地读取 · MV / MZ / VX Ace', 'badge')
+        self.badge = label('本地读取 · RPG Maker / SRPG Studio', 'badge')
         top.addWidget(self.badge)
         self.report_button = button('提取报告', self.report)
         self.report_button.setEnabled(False)
@@ -745,13 +745,14 @@ class MainWindow(QMainWindow):
             '2. 检测到多份翻译时，选择要使用的版本。\n'
             '3. 左侧选择场景，中间搜索台词，右侧查看原文、译文及来源。\n'
             '4. “连续阅读”按每页 100 条显示上下文；“导出文本”可汇总或按场景拆分。\n\n'
-            '将本工具 EXE 放到 MV／MZ／VX Ace 游戏目录，双击会自动识别。\n'
+            '将本工具 EXE 放到受支持的游戏目录，双击会自动识别。\n'
             '默认只看对白和选项；物品、菜单、脚本等请切换“所有文本类别”。\n'
             '单独打开翻译 JSON 也能提取，但没有对应游戏数据时无法还原场景。\n\n'
             '〔变量#编号〕等表示游戏运行时决定的内容；未知插件控制符保留。\n'
             '“部分匹配”包含仍未翻译的行。“游戏内文本”不表示已自动判断语言。\n'
             '地图／事件页顺序不等于剧情先后顺序；公共事件单独保留，不自动重复展开。\n'
-            '支持 MV／MZ 标准 JSON、VX Ace 已展开的 .rvdata2 与 MTool 字符串字典。\n'
+            '支持 MV／MZ 标准 JSON、VX Ace 已展开的 .rvdata2、SRPG Studio 未加密 data.dts 与 MTool 字符串字典。\n'
+            'SRPG Studio：适配 1.140–1.322 标准数据；未读取外部 language.dat／localization.dat。\n'
             '暂不支持 XP／VX 的数据、RGSS 加密归档或特殊封装。\n'
             '提取与导出在本机完成，不启动游戏、不上传文本、不修改游戏。')
 

@@ -129,6 +129,27 @@ class GuiTests(unittest.TestCase):
         self.assertTrue(self.window.result.records)
         self.assertTrue(all(r.status == '游戏内文本' for r in self.window.result.records))
 
+    def test_srpg_load_scene_tree_and_reading(self):
+        from test_srpg import archive, write_demo
+        (self.fixture.root / 'data.dts').write_bytes(archive())
+        with patch('srpg.run_parser', side_effect=write_demo), patch('app.QMessageBox.warning') as warning:
+            self.window.load(str(self.fixture.root), '')
+            for _ in range(1000):
+                APP.processEvents()
+                if self.window.worker is None:
+                    break
+                QTest.qWait(10)
+            self.assertIsNone(self.window.worker)
+            warning.assert_not_called()
+        self.assertEqual(self.window.result.engine, 'SRPG Studio')
+        self.assertIn('你好', self.window.panes[0].toPlainText())
+        self.assertTrue(self.window.read_button.isEnabled())
+        self.assertTrue(self.window.export_button.isEnabled())
+        root = self.window.tree.topLevelItem(0)
+        self.assertGreater(root.childCount(), 0)
+        self.assertTrue(any(root.child(i).child(j).childCount() > 0
+                            for i in range(root.childCount()) for j in range(root.child(i).childCount())))
+
 
 if __name__ == '__main__':
     unittest.main()

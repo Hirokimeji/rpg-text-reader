@@ -1,4 +1,4 @@
-台词拾光 1.1.2 — 游戏文本参考阅读器
+台词拾光 1.2.0 — 游戏文本参考阅读器
 
 【开始使用】
 双击“台词拾光.exe”，不需要安装 Python、Excel 或 MTool。
@@ -28,6 +28,8 @@ TXT 适合阅读；Excel 适合筛选、整理和对照。
 【支持的游戏】
 RPG Maker MV、MZ：可读的标准 JSON 数据。
 RPG Maker VX Ace：Data 文件夹中已经展开的 .rvdata2 数据。
+SRPG Studio：1.140–1.322 的标准未加密 data.dts，支持地图、事件、对白和数据库文本。
+SRPG Studio 的外部 language.dat／localization.dat 翻译层及加密项目暂不支持。
 MTool：原文与译文都是字符串的 JSON 字典。
 不支持所有红色龙头游戏：XP、VX、RGSS 加密归档及特殊封装暂未覆盖。
 
