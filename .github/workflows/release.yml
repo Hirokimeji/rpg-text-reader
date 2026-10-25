@@ -1,0 +1,106 @@
+name: Build and publish Windows portable app
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed.' }
+
+      - name: Verify extraction, exports and GUI behavior
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m unittest -v test_engine test_gui.GuiTests test_rgss
+          if ($LASTEXITCODE -ne 0) { throw 'Verification failed.' }
+
+      - name: Build Windows executable
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm textlight.spec
+          if ($LASTEXITCODE -ne 0) { throw 'Executable build failed.' }
+          python package_release.py
+          if ($LASTEXITCODE -ne 0) { throw 'Portable packaging failed.' }
+
+      - name: Prepare download files and checksums
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+          Copy-Item -LiteralPath 'release/台词拾光_1.1.1_便携版.zip' -Destination 'artifacts/textlight-1.1.1-windows-x64.zip'
+          Copy-Item -LiteralPath 'dist/台词拾光.exe' -Destination 'artifacts/Textlight.exe'
+          $checksums = Get-ChildItem -LiteralPath artifacts -File | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          }
+          Set-Content -LiteralPath artifacts/SHA256SUMS.txt -Value $checksums -Encoding ascii
+
+      - name: Publish v1.1.1 with portable downloads
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $base = "https://api.github.com/repos/$env:GITHUB_REPOSITORY"
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $release = $null
+          try {
+            $release = Invoke-RestMethod -Uri "$base/releases/tags/v1.1.1" -Headers $headers
+          } catch {
+            if ([int]$_.Exception.Response.StatusCode -ne 404) { throw }
+          }
+          if ($null -eq $release) {
+            $payload = @{
+              tag_name = 'v1.1.1'
+              target_commitish = $env:GITHUB_SHA
+              name = '台词拾光 1.1.1 · Windows 便携版'
+              body = Get-Content -LiteralPath docs/release-notes-1.1.1.md -Raw -Encoding utf8
+              draft = $true
+              prerelease = $false
+            } | ConvertTo-Json
+            $release = Invoke-RestMethod -Method Post -Uri "$base/releases" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($payload))
+          }
+          $uploadBase = $release.upload_url -replace '\{\?name,label\}$', ''
+          $existing = @($release.assets | ForEach-Object { $_.name })
+          foreach ($file in Get-ChildItem -LiteralPath artifacts -File) {
+            if ($existing -contains $file.Name) { continue }
+            $name = [Uri]::EscapeDataString($file.Name)
+            $asset = Invoke-RestMethod -Method Post -Uri "${uploadBase}?name=$name" -Headers $headers -ContentType 'application/octet-stream' -InFile $file.FullName
+            if ($asset.state -ne 'uploaded') { throw "Upload incomplete: $($file.Name)" }
+          }
+          if ($release.draft) {
+            $payload = @{ draft = $false; make_latest = 'true' } | ConvertTo-Json
+            $release = Invoke-RestMethod -Method Patch -Uri "$base/releases/$($release.id)" -Headers $headers -ContentType 'application/json' -Body $payload
+          }
+          Write-Output "Published: $($release.html_url)"
