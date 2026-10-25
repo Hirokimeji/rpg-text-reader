@@ -62,7 +62,7 @@ class ExtractionTests(unittest.TestCase):
     def test_no_translation_and_detection(self):
         result = extract(str(self.root))
         self.assertTrue(all(r.status == '游戏内文本' for r in result.records))
-        self.assertEqual(game_root(self.root / 'data'), self.root)
+        self.assertEqual(game_root(self.root / 'data'), self.root.resolve())
         self.assertEqual(result.engine, 'RPG Maker MZ')
 
     def test_controls_preserve_unknown_and_variables(self):

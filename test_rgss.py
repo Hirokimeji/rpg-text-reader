@@ -87,7 +87,7 @@ class RgssTests(unittest.TestCase):
             tr.write_text(json.dumps({'欢迎\n旅行者':'你好，旅行者', '谢谢':'Thank you'}),encoding='utf-8')
             before = {p.name:p.read_bytes() for p in data.iterdir()}
             result = extract(str(root),str(tr))
-            self.assertEqual(game_root(root), root)
+            self.assertEqual(game_root(root), root.resolve())
             self.assertEqual(result.engine, 'RPG Maker VX Ace')
             dialogue = next(r for r in result.records if r.category == '对白')
             self.assertEqual(dialogue.translation,'你好，旅行者')
