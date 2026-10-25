@@ -21,7 +21,7 @@ from exporter import export_records, record_text
 
 
 APP_NAME = '台词拾光'
-APP_VERSION = '1.1.1'
+APP_VERSION = '1.1.2'
 STYLE = '''
 QWidget { font-family: "Microsoft YaHei UI"; font-size: 13px; color: #253347; }
 QMainWindow, QDialog { background: #f3f6fa; }

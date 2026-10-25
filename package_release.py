@@ -11,7 +11,7 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
 root = Path(__file__).resolve().parent
-release = root / 'release' / '台词拾光_1.1.1_便携版'
+release = root / 'release' / '台词拾光_1.1.2_便携版'
 release.mkdir(parents=True, exist_ok=True)
 licenses = release / '第三方许可'
 licenses.mkdir(exist_ok=True)
@@ -58,7 +58,7 @@ if (root/'docs'/'images').is_dir():
 shutil.copy2(root/'dist'/'台词拾光.exe', release/'台词拾光.exe')
 exe = release/'台词拾光.exe'
 (release/'SHA256.txt').write_text(hashlib.sha256(exe.read_bytes()).hexdigest()+'  台词拾光.exe\n', encoding='utf-8')
-archive = root/'release'/'台词拾光_1.1.1_便携版.zip'
+archive = root/'release'/'台词拾光_1.1.2_便携版.zip'
 with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as z:
     for path in sorted(release.rglob('*')):
         if path.is_file():

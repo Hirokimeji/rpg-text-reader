@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from engine import Translator, clean, extract, game_root, json_from_js
+from engine import Translator, clean, extract, game_root, json_from_js, translation_candidates
 from exporter import export_records
 
 
@@ -67,6 +67,33 @@ class ExtractionTests(unittest.TestCase):
 
     def test_controls_preserve_unknown_and_variables(self):
         self.assertEqual(clean(r'\C[2]\N<小明>你好\V[3]\N[2]\!\Mystery[4]'), '你好〔变量#3〕〔角色#2〕\\Mystery[4]')
+
+    def test_translation_discovery_validates_contents_and_skips_cache(self):
+        for name, content in {
+            'MTool_TilesetDefinedCache.json': '{"tile": "cache"}',
+            'package.json': '{"name": "game"}',
+            'empty.json': '{}', 'array.json': '["text"]',
+            'nested.json': '{"settings": {"enabled": true}}',
+            'number.json': '{"version": 1}', 'broken.json': '{',
+        }.items():
+            (self.root / name).write_text(content, encoding='utf-8')
+        (self.root / 'binary.json').write_bytes(b'\xff\xfe\x00')
+        folder = self.root / 'translations'
+        folder.mkdir()
+        other = folder / 'custom.json'
+        other.write_text('{"Hello": ""}', encoding='utf-8-sig')
+        self.assertEqual(set(translation_candidates(self.root)), {self.translation, other})
+        with self.assertRaisesRegex(ValueError, '缓存或配置文件'):
+            Translator(self.root / 'MTool_TilesetDefinedCache.json')
+
+    def test_mv_translation_discovery_searches_www_and_game_directory(self):
+        www = self.root / 'www'
+        www.mkdir()
+        nested = www / 'translation'
+        nested.mkdir()
+        other = nested / 'custom.json'
+        other.write_text('{"Hello": "Hi"}', encoding='utf-8')
+        self.assertEqual(set(translation_candidates(www)), {self.translation, other})
 
     def test_dictionary_only_empty_and_bad_formats(self):
         standalone = self.root / 'standalone'

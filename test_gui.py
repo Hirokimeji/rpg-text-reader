@@ -2,6 +2,7 @@ import os
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 
 import unittest
+from unittest.mock import patch
 from dataclasses import replace
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt, QMimeData, QUrl, QPoint, QPointF, QCoreApplication, QEvent
@@ -105,6 +106,28 @@ class GuiTests(unittest.TestCase):
             self.assertIsNone(self.window.worker)
             self.assertGreater(self.window.model.rowCount(), 0)
             self.assertTrue(self.window.open_folder.isEnabled())
+
+    def test_drop_exe_with_cache_reads_game_without_translation_prompt(self):
+        self.fixture.translation.unlink()
+        (self.fixture.root / 'MTool_TilesetDefinedCache.json').write_text('[]')
+        exe = self.fixture.root / 'Game.exe'
+        exe.write_bytes(b'fixture')
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(str(exe))])
+        drop = QDropEvent(QPointF(10, 10), Qt.DropAction.CopyAction, mime, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+        with patch('app.TranslationDialog') as dialog, patch('app.QMessageBox.warning') as warning:
+            self.window.dropEvent(drop)
+            for _ in range(1000):
+                APP.processEvents()
+                if self.window.worker is None:
+                    break
+                QTest.qWait(10)
+            self.assertIsNone(self.window.worker)
+            dialog.assert_not_called()
+            warning.assert_not_called()
+        self.assertEqual(self.window.result.translation_file, '')
+        self.assertTrue(self.window.result.records)
+        self.assertTrue(all(r.status == '游戏内文本' for r in self.window.result.records))
 
 
 if __name__ == '__main__':

@@ -85,6 +85,24 @@ def game_root(path: str | Path) -> Path | None:
     return None
 
 
+NON_TRANSLATION_JSON = {'package.json', 'vk_swiftshader_icd.json', 'mtool_tilesetdefinedcache.json'}
+
+
+def read_translation(path: Path) -> dict[str, str]:
+    """Validate explicit selections and discovered files using the same rules."""
+    if path.name.casefold() in NON_TRANSLATION_JSON:
+        raise ValueError('所选文件是缓存或配置文件，不是翻译文件。请打开游戏 EXE／文件夹读取游戏内文本，或选择原文—译文 JSON 字典。')
+    try:
+        data = read_json(path)
+    except (UnicodeError, ValueError, RecursionError) as error:
+        raise ValueError('无法读取这份翻译 JSON。请选择 UTF-8 编码的原文—译文字符串字典。') from error
+    if not isinstance(data, dict) or not data:
+        raise ValueError('这份 JSON 不包含有效的翻译字典。请打开游戏 EXE／文件夹读取游戏内文本，或选择非空的原文—译文字符串字典。')
+    if any(not isinstance(v, str) for v in data.values()):
+        raise ValueError('这份 JSON 不是当前支持的原文—译文字符串字典，可能是缓存或配置文件。请重新选择翻译文件，或打开游戏 EXE／文件夹。')
+    return data
+
+
 def translation_candidates(root: Path) -> list[Path]:
     """Scan shallow user-facing locations, never traverse game media/save directories."""
     bases = [root]
@@ -97,8 +115,15 @@ def translation_candidates(root: Path) -> list[Path]:
             folder = base / name
             if folder.is_dir():
                 paths.extend(folder.glob('*.json'))
-    return sorted({p for p in paths if p.name.lower() not in ('package.json', 'vk_swiftshader_icd.json')},
-                  key=lambda p: (not any(x in p.name.lower() for x in ('翻译', 'trans', 'mtool')), p.name.lower()))
+    valid = []
+    for path in set(paths):
+        try:
+            read_translation(path)
+        except (OSError, ValueError):
+            # An unrelated, invalid or unreadable file must not block the game.
+            continue
+        valid.append(path)
+    return sorted(valid, key=lambda p: (not any(x in p.name.lower() for x in ('翻译', 'trans', 'mtool')), p.name.lower()))
 
 
 class Translator:
@@ -108,11 +133,7 @@ class Translator:
         self.used: set[str] = set()
         self.index: dict[str, str] = {}
         if path:
-            data = read_json(path)
-            if not isinstance(data, dict) or not data:
-                raise ValueError('翻译文件需为非空的“原文：译文”JSON 字典。')
-            if any(not isinstance(v, str) for v in data.values()):
-                raise ValueError('这份 JSON 不是当前支持的 MTool 原文—译文字符串字典，请选择其他文件。')
+            data = read_translation(path)
             self.data = data
             for key in data:
                 self.index.setdefault(normalize(key), key)
