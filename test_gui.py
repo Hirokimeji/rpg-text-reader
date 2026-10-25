@@ -4,7 +4,7 @@ os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 import unittest
 from dataclasses import replace
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import Qt, QMimeData, QUrl, QPoint, QPointF
+from PySide6.QtCore import Qt, QMimeData, QUrl, QPoint, QPointF, QCoreApplication, QEvent
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from PySide6.QtTest import QTest
 
@@ -17,6 +17,18 @@ APP = QApplication.instance() or QApplication([])
 
 
 class GuiTests(unittest.TestCase):
+    @classmethod
+    def tearDownClass(cls):
+        # Destroy native Qt objects before Python interpreter shutdown on CI.
+        APP.clipboard().clear()
+        for widget in APP.topLevelWidgets():
+            widget.close()
+            widget.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        APP.processEvents()
+        import shiboken6
+        shiboken6.delete(APP)
+
     def setUp(self):
         self.fixture = ExtractionTests()
         self.fixture.setUp()
@@ -26,6 +38,9 @@ class GuiTests(unittest.TestCase):
 
     def tearDown(self):
         self.window.close()
+        self.window.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        APP.processEvents()
         self.fixture.tearDown()
 
     def test_search_categories_scene_and_translation_view(self):
@@ -64,6 +79,7 @@ class GuiTests(unittest.TestCase):
         reader.turn(1)
         self.assertIn('101', reader.info.text())
         reader.close()
+        reader.deleteLater()
 
     def test_drop_folder_exe_and_json_routes_to_loader(self):
         captured = []

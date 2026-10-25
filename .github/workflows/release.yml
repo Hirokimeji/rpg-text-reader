@@ -43,6 +43,7 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: |
           python -m unittest -v test_engine test_gui.GuiTests test_rgss
+          Write-Output "Verification process exit code: $LASTEXITCODE"
           if ($LASTEXITCODE -ne 0) { throw 'Verification failed.' }
 
       - name: Build Windows executable
