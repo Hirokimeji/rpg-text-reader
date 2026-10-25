@@ -3,6 +3,7 @@ import os
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 
 import sys
+import shutil
 from collections import Counter
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -51,6 +52,6 @@ app.processEvents()
 folder=Path(__file__).resolve().parent/'images'
 folder.mkdir(exist_ok=True)
 assert window.grab().save(str(folder/'preview.png'))
-QImage(str(Path(__file__).resolve().parent.parent/'app.ico')).save(str(folder/'icon.png'))
+shutil.copy2(Path(__file__).resolve().parent.parent/'assets'/'icons'/'textlight-mascot-v1.png', folder/'icon.png')
 window.close()
 print('Demo preview rendered')
