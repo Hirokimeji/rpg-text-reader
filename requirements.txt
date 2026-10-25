@@ -1,3 +1,5 @@
 PySide6==6.12.0
 openpyxl==3.1.5
 PyInstaller==6.20.0
+UnityPy==1.25.3
+TypeTreeGeneratorAPI==0.0.10

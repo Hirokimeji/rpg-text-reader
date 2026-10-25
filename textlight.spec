@@ -1,12 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 from pathlib import Path
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
 project = Path(SPECPATH)
 a = Analysis(
     [str(project / 'app.py')],
     pathex=[str(project)],
-    binaries=[],
-    datas=[(str(project / 'app.ico'), '.'), (str(project / 'vendor' / 'srpg'), 'vendor/srpg')],
+    binaries=collect_dynamic_libs('TypeTreeGeneratorAPI'),
+    datas=[(str(project / 'app.ico'), '.'), (str(project / 'vendor' / 'srpg'), 'vendor/srpg')] + collect_data_files('UnityPy', includes=['resources/*']),
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

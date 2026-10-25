@@ -150,6 +150,28 @@ class GuiTests(unittest.TestCase):
         self.assertTrue(any(root.child(i).child(j).childCount() > 0
                             for i in range(root.childCount()) for j in range(root.child(i).childCount())))
 
+    def test_unity_load_search_and_scene_hint(self):
+        from test_unity import demo_extract
+        folder = self.fixture.root / 'Demo_Data'
+        folder.mkdir()
+        (folder / 'data.unity3d').write_bytes(b'fixture')
+        with patch('engine.extract_unity', side_effect=demo_extract), patch('app.QMessageBox.warning') as warning:
+            self.window.load(str(self.fixture.root), '')
+            for _ in range(1000):
+                APP.processEvents()
+                if self.window.worker is None:
+                    break
+                QTest.qWait(10)
+            self.assertIsNone(self.window.worker)
+            warning.assert_not_called()
+        self.assertEqual(self.window.result.engine, 'Unity')
+        self.assertIn('剧本', self.window.scene_hint.text())
+        self.window.search.setText('风停了')
+        self.window.filter()
+        self.assertEqual(self.window.model.rowCount(), 1)
+        self.assertIn('<耳语>', self.window.panes[0].toPlainText())
+        self.assertTrue(self.window.export_button.isEnabled())
+
 
 if __name__ == '__main__':
     unittest.main()

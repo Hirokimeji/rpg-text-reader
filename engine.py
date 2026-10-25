@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable
 from rgss import read_rgss
 from srpg import is_srpg, clean_srpg, extract_srpg
+from unity_reader import unity_data, clean_unity, extract_unity
 
 
 STORY = {'对白', '滚动文字', '选项'}
@@ -76,7 +77,11 @@ def game_root(path: str | Path) -> Path | None:
     candidates = [base, base / 'www']
     if base.name.lower() in ('data', 'js'):
         candidates.append(base.parent)
+    if base.name.casefold().endswith('_data'):
+        candidates.insert(0, base.parent)
     for root in candidates:
+        if unity_data(root):
+            return root
         if is_srpg(root):
             return root
         if (root / 'Data' / 'System.rvdata2').is_file() and (root / 'Data' / 'MapInfos.rvdata2').is_file():
@@ -265,18 +270,20 @@ def extract(path: str, translation: str = '', progress: Callable | None = None,
         if Path(path).suffix.lower() == '.json':
             translation = path
         else:
-            raise ValueError('没有找到可读取的 RPG Maker MV／MZ／VX Ace 或 SRPG Studio 数据。请选择游戏主目录、www 目录或翻译 JSON。')
+            raise ValueError('没有找到可读取的 RPG Maker、SRPG Studio 或 Unity 数据。请选择游戏主目录、www／*_Data 目录或翻译 JSON。')
     tick('正在读取翻译文件…')
     tr = Translator(Path(translation) if translation else None)
     result = Result(Path(path).stem, '翻译字典', str(root or Path(path).parent), translation)
     srpg = bool(root and is_srpg(root))
-    clean_text = clean_srpg if srpg else clean
+    unity = bool(root and unity_data(root))
+    clean_text = clean_unity if unity else (clean_srpg if srpg else clean)
+    engine_stats = {}
 
     def add(raw, group, scene_id, scene, category, source, speaker='', context='', untranslated=False):
         if not isinstance(raw, str) or not raw.strip():
             return
         translated, status = ('', '游戏内文本') if untranslated else tr.translate(raw)
-        name_match = None if srpg else NAME_TAG.search(translated or raw)
+        name_match = None if srpg or unity else NAME_TAG.search(translated or raw)
         if name_match:
             speaker = name_match[1]
         elif speaker:
@@ -343,7 +350,11 @@ def extract(path: str, translation: str = '', progress: Callable | None = None,
                     add(value, group, sid, scene, category, f'{loc}.parameters{suffix}', context=condition)
             i += 1
 
-    if srpg:
+    if unity:
+        result.title, warnings, engine_stats = extract_unity(root, add, tick)
+        result.engine = 'Unity'
+        result.warnings.extend(warnings)
+    elif srpg:
         result.title, version = extract_srpg(root, add, tick)
         result.engine = 'SRPG Studio'
         result.warnings.append(f'SRPG Studio 数据版本 {version}：按地图、事件和事件页整理；场景排列不等于剧情发生顺序。')
@@ -461,6 +472,8 @@ def extract(path: str, translation: str = '', progress: Callable | None = None,
                     'translation_entries': len(tr.data), 'unmatched_dictionary': unused,
                     'categories': dict(Counter(r.category for r in result.records)),
                     'statuses': dict(Counter(r.status for r in result.records))}
+    if engine_stats:
+        result.stats['unity'] = engine_stats
     if not result.records:
         result.warnings.append('没有提取到文本，请检查游戏数据或翻译文件。')
     tick('提取完成')

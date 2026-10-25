@@ -21,7 +21,7 @@ from exporter import export_records, record_text
 
 
 APP_NAME = '台词拾光'
-APP_VERSION = '1.2.1'
+APP_VERSION = '1.3.0'
 STYLE = '''
 QWidget { font-family: "Microsoft YaHei UI"; font-size: 13px; color: #253347; }
 QMainWindow, QDialog { background: #f3f6fa; }
@@ -176,7 +176,7 @@ class ExportDialog(QDialog):
         self.format = QComboBox()
         self.format.addItem('TXT · 方便阅读和复制', 'txt')
         self.format.addItem('Excel (.xlsx) · 保留原文、译文与来源', 'xlsx')
-        self.split = QCheckBox('每个事件页／公共事件分别生成一个文件')
+        self.split = QCheckBox('每个场景分别生成一个文件')
         self.bilingual = QCheckBox('TXT 同时包含原文和译文')
         self.raw = QCheckBox('TXT 保留原始控制符')
         self.format.currentIndexChanged.connect(lambda: [w.setEnabled(self.format.currentData() == 'txt') for w in (self.bilingual, self.raw)])
@@ -271,7 +271,7 @@ class MainWindow(QMainWindow):
         names.addWidget(label('从游戏对白，找到创作的线索', 'muted'))
         top.addLayout(names)
         top.addStretch()
-        self.badge = label('本地读取 · RPG Maker / SRPG Studio', 'badge')
+        self.badge = label('本地读取 · RPG Maker / SRPG / Unity', 'badge')
         top.addWidget(self.badge)
         self.report_button = button('提取报告', self.report)
         self.report_button.setEnabled(False)
@@ -329,7 +329,8 @@ class MainWindow(QMainWindow):
         self.tree.setUniformRowHeights(True)
         self.tree.itemSelectionChanged.connect(self.scene_changed)
         left_layout.addWidget(self.tree)
-        left_layout.addWidget(label('地图 → 事件 → 事件页\n场景数量包含所有文本类别', 'muted'))
+        self.scene_hint = label('地图 → 事件 → 事件页\n场景数量包含所有文本类别', 'muted')
+        left_layout.addWidget(self.scene_hint)
         splitter.addWidget(left)
 
         center = QWidget()
@@ -516,6 +517,8 @@ class MainWindow(QMainWindow):
 
     def loaded(self, result):
         self.result = result
+        self.scene_hint.setText('按资源对象／剧本分组\n分组顺序不代表剧情发生先后' if result.engine == 'Unity'
+                                else '地图 → 事件 → 事件页\n场景数量包含所有文本类别')
         self.badge.setText(result.engine + ' · 只读')
         self.setWindowTitle(f'{APP_NAME} {APP_VERSION} · {result.title}')
         self.search.blockSignals(True)
@@ -752,6 +755,7 @@ class MainWindow(QMainWindow):
             '“部分匹配”包含仍未翻译的行。“游戏内文本”不表示已自动判断语言。\n'
             '地图／事件页顺序不等于剧情先后顺序；公共事件单独保留，不自动重复展开。\n'
             '支持 MV／MZ 标准 JSON、VX Ace 已展开的 .rvdata2、SRPG Studio 未加密 data.dts 与 MTool 字符串字典。\n'
+            'Unity：读取文本资源、外置文本及可解析的托管对白对象；按资源／剧本分组。\n'
             'SRPG Studio：适配 1.140–1.322 标准数据；未读取外部 language.dat／localization.dat。\n'
             '暂不支持 XP／VX 的数据、RGSS 加密归档或特殊封装。\n'
             '提取与导出在本机完成，不启动游戏、不上传文本、不修改游戏。')
