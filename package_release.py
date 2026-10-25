@@ -7,6 +7,9 @@ import sys
 import urllib.request
 import zipfile
 
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+
 root = Path(__file__).resolve().parent
 release = root / 'release' / '台词拾光_1.1.1_便携版'
 release.mkdir(parents=True, exist_ok=True)
