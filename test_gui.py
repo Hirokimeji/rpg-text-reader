@@ -9,12 +9,13 @@ from PySide6.QtCore import Qt, QMimeData, QUrl, QPoint, QPointF, QCoreApplicatio
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from PySide6.QtTest import QTest
 
-from app import MainWindow, ReadingDialog
+from app import MainWindow, ReadingDialog, apply_theme
 from test_engine import ExtractionTests
 from engine import STORY
 
 
 APP = QApplication.instance() or QApplication([])
+apply_theme(APP)
 
 
 class GuiTests(unittest.TestCase):
@@ -59,8 +60,11 @@ class GuiTests(unittest.TestCase):
         self.window.search.setText('NOT_PRESENT_IN_ANY_TEXT')
         self.window.filter()
         self.assertEqual(self.window.model.rowCount(), 0)
+        self.assertIs(self.window.table_stack.currentWidget(), self.window.empty_page)
         self.assertFalse(self.window.read_button.isEnabled())
         self.assertFalse(self.window.copy_button.isEnabled())
+        self.window.reset_filters()
+        self.assertIs(self.window.table_stack.currentWidget(), self.window.table)
 
     def test_pagination_keeps_full_search_and_copy_scope(self):
         template = next(r for r in self.result.records if r.category == '对白')

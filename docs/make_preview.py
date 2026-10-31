@@ -11,10 +11,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QImage, QFontDatabase, QFont
 from app import MainWindow, STYLE
+from ui_theme import apply_theme
 from engine import Record, Result
 
 app = QApplication([])
-app.setStyle('Fusion')
+apply_theme(app)
 for name in ('msyh.ttc', 'segoeui.ttf'):
     font = Path(os.environ.get('WINDIR', 'C:/Windows'))/'Fonts'/name
     if font.is_file():
@@ -43,6 +44,7 @@ result.stats={'scenes':len({r.scene_id for r in result.records}),'records':len(r
 window=MainWindow()
 window.resize(1440,850)
 window.loaded(result)
+window.export_button.setEnabled(True)
 window.path.setText('演示游戏文件夹（此图不包含实际游戏内容）')
 window.show()
 app.processEvents()
@@ -52,6 +54,6 @@ app.processEvents()
 folder=Path(__file__).resolve().parent/'images'
 folder.mkdir(exist_ok=True)
 assert window.grab().save(str(folder/'preview.png'))
-shutil.copy2(Path(__file__).resolve().parent.parent/'assets'/'icons'/'textlight-mascot-v1.png', folder/'icon.png')
+shutil.copy2(Path(__file__).resolve().parent.parent/'assets'/'icons'/'textlight-mascot-ui-v3.png', folder/'icon.png')
 window.close()
 print('Demo preview rendered')

@@ -13,49 +13,26 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QFileDialog, QComboBox, QCheckBox, QSplitter, QTreeWidget, QTreeWidgetItem,
     QTableView, QHeaderView, QAbstractItemView, QTabWidget, QPlainTextEdit, QProgressBar,
-    QMessageBox, QDialog, QDialogButtonBox, QFormLayout, QSpinBox,
+    QMessageBox, QDialog, QDialogButtonBox, QFormLayout, QSpinBox, QStackedWidget,
 )
 
 from engine import STORY, Result, extract, game_root, translation_candidates
 from exporter import export_records, record_text
+from ui_theme import STYLE, NotebookCanvas, PaperCard, EmptyPage, mascot, apply_theme
 
 
 APP_NAME = '台词拾光'
-APP_VERSION = '1.3.0'
-STYLE = '''
-QWidget { font-family: "Microsoft YaHei UI"; font-size: 13px; color: #253347; }
-QMainWindow, QDialog { background: #f3f6fa; }
-QLabel#brand { font-size: 25px; font-weight: 700; color: #143a46; }
-QLabel#muted { color: #65758b; }
-QLabel#section { font-size: 15px; font-weight: 600; }
-QLabel#badge { color: #146c67; background: #e1f1ec; border-radius: 8px; padding: 7px 12px; }
-QLineEdit, QComboBox, QSpinBox { background: white; border: 1px solid #d8e0e9; border-radius: 6px; padding: 7px; }
-QLineEdit:focus, QComboBox:focus { border: 1px solid #27877e; }
-QPushButton { background: white; border: 1px solid #d8e0e9; border-radius: 6px; padding: 8px 14px; }
-QPushButton:hover { background: #eaf3f1; border-color: #7ea9a4; }
-QPushButton#primary { background: #146c67; color: white; border: none; font-weight: 600; }
-QPushButton#primary:hover { background: #0b5754; }
-QPushButton:disabled { color: #98a4b2; background: #e9edf2; }
-QTreeWidget, QTableView, QPlainTextEdit { background: white; border: 1px solid #e0e6ed; border-radius: 7px; selection-background-color: #d8eeea; selection-color: #163b38; }
-QTreeWidget::item { padding: 5px 2px; }
-QTableView { gridline-color: #edf1f5; alternate-background-color: #f8fafc; }
-QTableView::item { padding: 5px; }
-QHeaderView::section { background: #edf2f6; color: #52657c; border: none; border-bottom: 1px solid #dde4ec; padding: 9px 6px; font-weight: 600; }
-QTabWidget::pane { border: none; }
-QTabBar::tab { padding: 9px 16px; background: #eaf0f5; border-top-left-radius: 5px; border-top-right-radius: 5px; }
-QTabBar::tab:selected { background: white; color: #146c67; font-weight: 600; }
-QSplitter::handle { background: #f3f6fa; }
-QProgressBar { border: none; background: #e5ecef; border-radius: 3px; max-height: 5px; }
-QProgressBar::chunk { background: #27877e; }
-QCheckBox { spacing: 7px; }
-QStatusBar { color: #65758b; }
-'''
+APP_VERSION = '1.4.0'
+
 
 
 def label(text, name=''):
     widget = QLabel(text)
     if name:
         widget.setObjectName(name)
+    if name == 'step':
+        widget.setFixedSize(30, 25)
+        widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
     return widget
 
 
@@ -117,7 +94,7 @@ class RecordsModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.ToolTipRole:
             return f'{r.group} / {r.scene}\n{r.context}\n{r.display[:2000]}'
         if role == Qt.ItemDataRole.ForegroundRole and index.column() == 4:
-            return QColor('#a26b20' if r.status in ('未匹配', '部分匹配') else '#146c67')
+            return QColor('#f0b58c' if r.status in ('未匹配', '部分匹配') else '#deb5e9')
         return None
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
@@ -259,19 +236,25 @@ class MainWindow(QMainWindow):
         self.resize(1440, 900)
         self.setMinimumSize(1050, 680)
         self.setAcceptDrops(True)
-        base = QWidget()
+        base = NotebookCanvas()
         self.setCentralWidget(base)
         layout = QVBoxLayout(base)
-        layout.setContentsMargins(24, 18, 24, 12)
-        layout.setSpacing(12)
+        layout.setContentsMargins(20, 14, 20, 12)
+        layout.setSpacing(10)
 
-        top = QHBoxLayout()
+        hero = PaperCard('heroCard')
+        top = QHBoxLayout(hero)
+        top.setContentsMargins(16, 7, 16, 7)
+        top.setSpacing(12)
+        top.addWidget(mascot(70))
         names = QVBoxLayout()
+        names.setSpacing(1)
+        names.addWidget(label('TEXTLIGHT  /  STORY NOTEBOOK', 'eyebrow'))
         names.addWidget(label(APP_NAME, 'brand'))
-        names.addWidget(label('从游戏对白，找到创作的线索', 'muted'))
+        names.addWidget(label('从一段对白，拾起灵感。', 'muted'))
         top.addLayout(names)
         top.addStretch()
-        self.badge = label('本地读取 · RPG Maker / SRPG / Unity', 'badge')
+        self.badge = label('✦ 本地读取 · 准备就绪', 'badge')
         top.addWidget(self.badge)
         self.report_button = button('提取报告', self.report)
         self.report_button.setEnabled(False)
@@ -280,20 +263,31 @@ class MainWindow(QMainWindow):
         self.export_button = button('导出文本', self.export, True)
         self.export_button.setEnabled(False)
         top.addWidget(self.export_button)
-        layout.addLayout(top)
+        layout.addWidget(hero)
 
+        source_card = PaperCard('sourceCard')
+        source_layout = QVBoxLayout(source_card)
+        source_layout.setContentsMargins(12, 8, 12, 10)
+        source_layout.setSpacing(6)
+        source_caption = QHBoxLayout()
+        source_caption.addWidget(label('✧ 打开新的故事', 'section'))
+        source_caption.addStretch()
+        source_caption.addWidget(label('选择文件夹，或将游戏文件拖到窗口', 'muted'))
+        source_layout.addLayout(source_caption)
         source = QHBoxLayout()
         self.path = QLineEdit()
         self.path.setPlaceholderText('选择游戏文件夹，或把游戏 EXE / 文件夹 / 翻译 JSON 拖到窗口')
         self.path.returnPressed.connect(lambda: self.load(self.path.text()))
         source.addWidget(self.path, 1)
         self.open_folder = button('选择游戏文件夹', self.browse_folder, True)
+        self.open_folder.setObjectName('openGame')
         self.open_file = button('选择 EXE / JSON', self.browse_file)
         self.translation_button = button('切换翻译文件', self.choose_translation)
         source.addWidget(self.open_folder)
         source.addWidget(self.open_file)
         source.addWidget(self.translation_button)
-        layout.addLayout(source)
+        source_layout.addLayout(source)
+        layout.addWidget(source_card)
 
         filters = QHBoxLayout()
         self.search = QLineEdit()
@@ -314,18 +308,23 @@ class MainWindow(QMainWindow):
         filters.addWidget(button('重置筛选', self.reset_filters))
         layout.addLayout(filters)
 
-        self.summary = label('还没有打开游戏。选择文件夹即可开始，无需启动游戏或 MTool。', 'muted')
+        self.summary = label('✦ 你的台词手账还空着。打开游戏，让故事从这里开始。', 'summary')
         self.summary.setWordWrap(True)
         layout.addWidget(self.summary)
         splitter = QSplitter()
+        splitter.setHandleWidth(12)
         splitter.setChildrenCollapsible(False)
-        left = QWidget()
+        left = PaperCard()
         left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.addWidget(label('场景目录', 'section'))
+        left_layout.setContentsMargins(12, 12, 12, 10)
+        left_heading = QHBoxLayout()
+        left_heading.addWidget(label('01', 'step'))
+        left_heading.addWidget(label('场景目录', 'section'))
+        left_heading.addStretch()
+        left_layout.addLayout(left_heading)
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
-        self.tree.setMinimumWidth(200)
+        self.tree.setMinimumWidth(180)
         self.tree.setUniformRowHeights(True)
         self.tree.itemSelectionChanged.connect(self.scene_changed)
         left_layout.addWidget(self.tree)
@@ -333,10 +332,12 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.scene_hint)
         splitter.addWidget(left)
 
-        center = QWidget()
+        center = PaperCard()
         center_layout = QVBoxLayout(center)
-        center_layout.setContentsMargins(0, 0, 0, 0)
+        center_layout.setContentsMargins(12, 12, 12, 10)
+        center_layout.setSpacing(8)
         center_top = QHBoxLayout()
+        center_top.addWidget(label('02', 'step'))
         self.count = label('文本列表', 'section')
         center_top.addWidget(self.count)
         center_top.addStretch()
@@ -348,6 +349,7 @@ class MainWindow(QMainWindow):
         self.table = QTableView()
         self.table.setModel(self.model)
         self.table.setAlternatingRowColors(True)
+        self.table.setShowGrid(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -357,9 +359,17 @@ class MainWindow(QMainWindow):
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         for col, width in ((0, 64), (1, 80), (2, 85), (4, 95)):
             self.table.setColumnWidth(col, width)
-        self.table.setMinimumWidth(380)
+        self.table.setMinimumWidth(340)
         self.table.selectionModel().selectionChanged.connect(self.show_record)
-        center_layout.addWidget(self.table)
+        self.table_stack = QStackedWidget()
+        self.empty_page = EmptyPage()
+        self.table_stack.addWidget(self.empty_page)
+        self.table_stack.addWidget(self.table)
+        center_layout.addWidget(self.table_stack, 1)
+        self.results_footer = QWidget()
+        results_layout = QVBoxLayout(self.results_footer)
+        results_layout.setContentsMargins(0, 0, 0, 0)
+        results_layout.setSpacing(6)
         pagination = QHBoxLayout()
         self.prev_page = button('上一页', lambda: self.turn_table(-1))
         self.next_page = button('下一页', lambda: self.turn_table(1))
@@ -369,17 +379,20 @@ class MainWindow(QMainWindow):
         pagination.addWidget(self.next_page)
         self.prev_page.setEnabled(False)
         self.next_page.setEnabled(False)
-        center_layout.addLayout(pagination)
+        results_layout.addLayout(pagination)
         self.copy_results_button = button('复制当前筛选结果（可跨页）', self.copy_results)
         self.copy_results_button.setEnabled(False)
-        center_layout.addWidget(self.copy_results_button)
-        center_layout.addWidget(label('点击阅读详情 · Ctrl / Shift 多选 · Ctrl+C 复制选中台词', 'muted'))
+        results_layout.addWidget(self.copy_results_button)
+        results_layout.addWidget(label('Ctrl / Shift 多选 · Ctrl+C 复制选中台词', 'muted'))
+        center_layout.addWidget(self.results_footer)
+        self.results_footer.hide()
         splitter.addWidget(center)
 
-        right = QWidget()
+        right = PaperCard()
         right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setContentsMargins(12, 12, 12, 10)
         detail_top = QHBoxLayout()
+        detail_top.addWidget(label('03', 'step'))
         detail_top.addWidget(label('台词阅读', 'section'))
         detail_top.addStretch()
         detail_top.addWidget(label('字号', 'muted'))
@@ -388,7 +401,7 @@ class MainWindow(QMainWindow):
         self.font_size.setValue(17)
         detail_top.addWidget(self.font_size)
         right_layout.addLayout(detail_top)
-        self.detail_title = label('选中一段文字，开始阅读', 'muted')
+        self.detail_title = label('选中一段文字，翻开故事的这一页。', 'muted')
         self.detail_title.setWordWrap(True)
         self.detail_title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         right_layout.addWidget(self.detail_title)
@@ -408,12 +421,13 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self.copy_button)
         right.setMinimumWidth(300)
         splitter.addWidget(right)
-        splitter.setSizes([250, 650, 440])
+        splitter.setSizes([230, 650, 460])
         layout.addWidget(splitter, 1)
 
         bottom = QHBoxLayout()
         self.activity = label('就绪 · 只读游戏文件', 'muted')
         bottom.addWidget(self.activity, 1)
+        bottom.addWidget(label('✦  Little stories, lovely moments  ♡', 'footerCharm'))
         self.cancel_button = button('取消', self.cancel)
         self.cancel_button.hide()
         bottom.addWidget(self.cancel_button)
@@ -608,6 +622,10 @@ class MainWindow(QMainWindow):
                 continue
             indices.append(i)
         self.filtered_indices = indices
+        self.results_footer.show()
+        self.table_stack.setCurrentWidget(self.table if indices else self.empty_page)
+        if not indices:
+            self.empty_page.set_search_empty()
         self.table_page = 0
         self.turn_table(0)
         self.count.setText(f'文本 · {len(indices):,} 条')
@@ -802,8 +820,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setOrganizationName('Textlight')
-    app.setStyle('Fusion')
-    app.setStyleSheet(STYLE)
+    apply_theme(app)
     if self_check:
         target = Path(sys.argv[4])
         target.mkdir(parents=True, exist_ok=True)
