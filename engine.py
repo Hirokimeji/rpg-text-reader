@@ -71,6 +71,12 @@ class Result:
     stats: dict = field(default_factory=dict)
 
 
+def has_json_runtime(root: Path) -> bool:
+    return (root / 'data' / 'System.json').is_file() and any(
+        (root / 'js' / name).is_file() for name in ('rpg_core.js', 'rmmz_core.js')
+    )
+
+
 def game_root(path: str | Path) -> Path | None:
     path = Path(path).resolve()
     base = path.parent if path.is_file() else path
@@ -84,11 +90,9 @@ def game_root(path: str | Path) -> Path | None:
             return root
         if is_srpg(root):
             return root
-        if (root / 'Data' / 'System.rvdata2').is_file() and (root / 'Data' / 'MapInfos.rvdata2').is_file():
+        if has_json_runtime(root):
             return root
-        if (root / 'data' / 'System.json').is_file() and any(
-            (root / 'js' / name).is_file() for name in ('rpg_core.js', 'rmmz_core.js')
-        ):
+        if (root / 'Data' / 'System.rvdata2').is_file() and (root / 'Data' / 'MapInfos.rvdata2').is_file():
             return root
     return None
 
@@ -360,7 +364,9 @@ def extract(path: str, translation: str = '', progress: Callable | None = None,
         result.warnings.append(f'SRPG Studio 数据版本 {version}：按地图、事件和事件页整理；场景排列不等于剧情发生顺序。')
         result.warnings.append('仅读取 data.dts 内的项目文本；未读取外部 language.dat／localization.dat、插件动态生成文字及图片文字。未知控制符保留。')
     elif root:
-        ace = (root / 'Data' / 'System.rvdata2').is_file()
+        # Ports can retain the original Ace data next to the current MV/MZ JSON.
+        # Follow the installed runtime rather than reading the older language/data.
+        ace = not has_json_runtime(root) and (root / 'Data' / 'System.rvdata2').is_file()
         data_dir = root / ('Data' if ace else 'data')
         extension = '.rvdata2' if ace else '.json'
         read_data = read_rgss if ace else read_json

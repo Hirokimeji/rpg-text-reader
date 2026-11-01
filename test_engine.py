@@ -1,4 +1,5 @@
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -64,6 +65,39 @@ class ExtractionTests(unittest.TestCase):
         self.assertTrue(all(r.status == '游戏内文本' for r in result.records))
         self.assertEqual(game_root(self.root / 'data'), self.root.resolve())
         self.assertEqual(result.engine, 'RPG Maker MZ')
+
+    def test_json_runtime_takes_priority_over_leftover_ace_data(self):
+        for name in ('System', 'MapInfos', 'CommonEvents'):
+            (self.root / 'data' / (name + '.rvdata2')).write_bytes(b'old data must not be parsed')
+        self.write('CommonEvents', [None, {'id': 1, 'name': '当前事件',
+                   'list': [self.cmd(401, ['当前版本的中文对白'])]}])
+        for marker, engine in (('rmmz_core.js', 'RPG Maker MZ'), ('rpg_core.js', 'RPG Maker MV')):
+            with self.subTest(engine=engine):
+                for existing in (self.root / 'js').glob('*_core.js'):
+                    existing.unlink()
+                (self.root / 'js' / marker).write_text('// runtime marker')
+                result = extract(str(self.root))
+                self.assertEqual(result.engine, engine)
+                self.assertEqual(result.title, '测试游戏')
+                self.assertTrue(any(r.original == '当前版本的中文对白' for r in result.records))
+                self.assertFalse(any('.rvdata2' in r.source for r in result.records))
+
+    def test_mixed_mv_port_opens_from_exe_folder_www_and_data(self):
+        wrapper = self.root / 'portable'
+        www = wrapper / 'www'
+        (www / 'js').mkdir(parents=True)
+        (www / 'js' / 'rpg_core.js').write_text('// runtime marker')
+        shutil.copytree(self.root / 'data', www / 'data')
+        for name in ('System', 'MapInfos'):
+            (www / 'data' / (name + '.rvdata2')).write_bytes(b'old data must not be parsed')
+        exe = wrapper / 'Game.exe'
+        exe.write_bytes(b'never executed')
+        for source in (exe, wrapper, www, www / 'data'):
+            with self.subTest(source=source.name):
+                self.assertEqual(game_root(source), www.resolve())
+                result = extract(str(source))
+                self.assertEqual(result.engine, 'RPG Maker MV')
+                self.assertTrue(any(r.raw == 'Hello\nWorld' for r in result.records))
 
     def test_controls_preserve_unknown_and_variables(self):
         self.assertEqual(clean(r'\C[2]\N<小明>你好\V[3]\N[2]\!\Mystery[4]'), '你好〔变量#3〕〔角色#2〕\\Mystery[4]')
