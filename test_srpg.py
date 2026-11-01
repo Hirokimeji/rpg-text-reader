@@ -59,16 +59,43 @@ class SrpgTests(unittest.TestCase):
         version, segments, payload = project_data(self.data)
         self.assertEqual((version, segments, payload), (1306, 0, b'project text here'))
 
-    def test_invalid_unsupported_and_encrypted_data(self):
+    def test_invalid_and_unsupported_data(self):
         for content, error in (
             (b'SDTS', '文件头'), (archive(version=1323), '数据版本'),
-            (archive(encrypted=1), '已加密'),
+            (archive(encrypted=2), '加密标记'),
             (archive()[:20] + struct.pack('<I', 99999) + archive()[24:], '越界'),
         ):
             with self.subTest(error=error):
                 self.data.write_bytes(content)
                 with self.assertRaisesRegex(ValueError, error):
                     project_data(self.data)
+
+    def test_standard_encrypted_projects_keep_chinese_and_source_unchanged(self):
+        # Fixed fixtures generated with an independent MD5/RC4 implementation,
+        # not by the Windows API used in production. Cover both key generations.
+        plain = bytes(range(32)) + '测试对白\n下一行'.encode('utf-16-le')
+        fixtures = (
+            (1210, 'a1f6e659a1a8a98f8a079c2e40492ce2f0b6ef7d7254c4ff68b0adfb8b87174ffa3cb39bd47468d78c7c0c8b9b6ee84a'),
+            (1300, 'a1f6e659a1a8a98f8a079c2e40492ce2f0b6ef7d7254c4ff68b0adfb8b87174ffa3cb39bd47468d78c7c0c8b9b6ee84a'),
+            (1301, '4654bd94cd96aacd4ea15ae56c2bffba143b35245a25cc5758c25ed14190fc7da8c0d0c0ebe2167d2caf210fde404de3'),
+            (1322, '4654bd94cd96aacd4ea15ae56c2bffba143b35245a25cc5758c25ed14190fc7da8c0d0c0ebe2167d2caf210fde404de3'),
+        )
+        for version, cipher in fixtures:
+            with self.subTest(version=version):
+                self.data.write_bytes(archive(bytes.fromhex(cipher), offset=20, version=version, encrypted=1))
+                before = self.data.read_bytes()
+                self.assertEqual(project_data(self.data), (version, 0, plain))
+
+                def parse_plain(project, output, tick):
+                    self.assertEqual(project.read_bytes(), plain)
+                    config = json.loads((project.parent / 'config.json').read_text(encoding='utf-8'))
+                    self.assertEqual(config['fileVersion'], version)
+                    write_demo(project, output, tick)
+
+                with patch('srpg.run_parser', side_effect=parse_plain):
+                    result = extract(str(self.root / 'Game.exe'))
+                self.assertTrue(any(r.original == '你好。\n出发吧。' for r in result.records))
+                self.assertEqual(self.data.read_bytes(), before)
 
     def test_scene_identity_dialogue_choices_and_metadata(self):
         with patch('srpg.run_parser', side_effect=write_demo):

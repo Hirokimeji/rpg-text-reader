@@ -22,7 +22,7 @@ from ui_theme import STYLE, NotebookCanvas, PaperCard, EmptyPage, mascot, apply_
 
 
 APP_NAME = '台词拾光'
-APP_VERSION = '1.4.0'
+APP_VERSION = '1.4.1'
 
 
 
@@ -772,7 +772,7 @@ class MainWindow(QMainWindow):
             '〔变量#编号〕等表示游戏运行时决定的内容；未知插件控制符保留。\n'
             '“部分匹配”包含仍未翻译的行。“游戏内文本”不表示已自动判断语言。\n'
             '地图／事件页顺序不等于剧情先后顺序；公共事件单独保留，不自动重复展开。\n'
-            '支持 MV／MZ 标准 JSON、VX Ace 已展开的 .rvdata2、SRPG Studio 未加密 data.dts 与 MTool 字符串字典。\n'
+            '支持 MV／MZ 标准 JSON、VX Ace 已展开的 .rvdata2、SRPG Studio 标准 data.dts（含标准加密） 与 MTool 字符串字典。\n'
             'Unity：读取文本资源、外置文本及可解析的托管对白对象；按资源／剧本分组。\n'
             'SRPG Studio：适配 1.140–1.322 标准数据；未读取外部 language.dat／localization.dat。\n'
             '暂不支持 XP／VX 的数据、RGSS 加密归档或特殊封装。\n'

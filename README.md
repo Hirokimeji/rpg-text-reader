@@ -38,7 +38,7 @@
 | --- | --- |
 | RPG Maker MV / MZ | `data/` 或 `www/data/` 中的标准 JSON 数据 |
 | RPG Maker VX Ace | 已展开的 `Data/*.rvdata2` |
-| SRPG Studio | 1.140–1.322 的标准未加密 `data.dts`，暂不读取外部语言包 |
+| SRPG Studio | 1.140–1.322 的标准 `data.dts`（含引擎标准加密），暂不读取外部语言包 |
 | Unity | 标准文本资源、外置文本，以及能够解析结构的对白对象；兼容情况因游戏而异 |
 | MTool | “原文：译文”形式的字符串 JSON 字典 |
 

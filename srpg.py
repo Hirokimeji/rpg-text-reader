@@ -2,7 +2,8 @@
 
 Only the project-data segment is copied into an isolated temporary directory.
 No game executable, game script, resource unpacking or patch application is run.
-Archive layout reference: Sinflower/SRPG-ToolBox (see vendor/srpg/README.md).
+Archive layout and standard encryption reference: Sinflower/SRPG-ToolBox
+(see vendor/srpg/README.md and its MIT license).
 """
 from __future__ import annotations
 
@@ -49,6 +50,63 @@ def clean_srpg(text: str) -> str:
     return re.sub(r'\\[._]', '', text).strip()
 
 
+def decrypt_project(data: bytes, version: int) -> bytes:
+    """Decode the standard SDTS project stream using Windows CryptoAPI.
+
+    Match upstream Crypt.cpp: MD5 + provider-default RC4, including the
+    historical UTF-16 password byte-count convention. Only the project bytes
+    are decoded; game executables, scripts and resources are not loaded.
+    """
+    if sys.platform != 'win32':
+        raise ValueError('读取 SRPG Studio 标准加密数据需要 Windows 10 / 11。')
+    import ctypes
+    from ctypes import wintypes
+
+    api = ctypes.WinDLL('advapi32', use_last_error=True)
+    handle = ctypes.c_size_t
+    signatures = {
+        'CryptAcquireContextW': [ctypes.POINTER(handle), wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD],
+        'CryptCreateHash': [handle, wintypes.DWORD, handle, wintypes.DWORD, ctypes.POINTER(handle)],
+        'CryptHashData': [handle, ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD],
+        'CryptDeriveKey': [handle, wintypes.DWORD, handle, wintypes.DWORD, ctypes.POINTER(handle)],
+        'CryptDecrypt': [handle, handle, wintypes.BOOL, wintypes.DWORD, ctypes.c_void_p, ctypes.POINTER(wintypes.DWORD)],
+        'CryptDestroyKey': [handle], 'CryptDestroyHash': [handle],
+        'CryptReleaseContext': [handle, wintypes.DWORD],
+    }
+    for name, args in signatures.items():
+        function = getattr(api, name)
+        function.argtypes = args
+        function.restype = wintypes.BOOL
+
+    provider, hash_handle, key = handle(), handle(), handle()
+
+    def check(ok):
+        if not ok:
+            raise ctypes.WinError(ctypes.get_last_error())
+
+    try:
+        # PROV_RSA_FULL / CRYPT_VERIFYCONTEXT: no persistent key container.
+        check(api.CryptAcquireContextW(ctypes.byref(provider), None, None, 1, 0xf0000000))
+        check(api.CryptCreateHash(provider, 0x8003, 0, 0, ctypes.byref(hash_handle)))  # CALG_MD5
+        password = '_dynamic' if version >= 1301 else 'keyset'
+        seed = password.encode('utf-16-le')[:len(password)]
+        check(api.CryptHashData(hash_handle, seed, len(seed), 0))
+        check(api.CryptDeriveKey(provider, 0x6801, hash_handle, 0, ctypes.byref(key)))  # CALG_RC4
+        buffer = ctypes.create_string_buffer(data)
+        length = wintypes.DWORD(len(data))
+        check(api.CryptDecrypt(key, 0, True, 0, buffer, ctypes.byref(length)))
+        return buffer.raw[:length.value]
+    except OSError as error:
+        raise ValueError(f'SRPG Studio 标准加密数据读取失败：{error}') from error
+    finally:
+        if key:
+            api.CryptDestroyKey(key)
+        if hash_handle:
+            api.CryptDestroyHash(hash_handle)
+        if provider:
+            api.CryptReleaseContext(provider, 0)
+
+
 def project_data(path: Path) -> tuple[int, int, bytes]:
     with path.open('rb') as stream:
         header = stream.read(168)
@@ -56,9 +114,9 @@ def project_data(path: Path) -> tuple[int, int, bytes]:
             raise ValueError('SRPG Studio 的 data.dts 文件头无效或文件不完整。')
         _, encrypted, version, _, segments, relative = struct.unpack_from('<6I', header)
         if not 1140 <= version <= 1322:
-            raise ValueError(f'暂不支持这份 SRPG Studio 数据版本（{version}）；当前适配 1.140–1.322 的标准未加密 SDTS 数据。')
-        if encrypted:
-            raise ValueError('这份 SRPG Studio data.dts 已加密；当前版本仅支持未加密的标准 SDTS 项目数据。')
+            raise ValueError(f'暂不支持这份 SRPG Studio 数据版本（{version}）；当前适配 1.140–1.322 的标准 SDTS 数据。')
+        if encrypted not in (0, 1):
+            raise ValueError('SRPG Studio data.dts 的加密标记无效，可能使用了非标准封装。')
         offset = 168 + relative
         size = path.stat().st_size - offset
         if size < 16 or size > MAX_PROJECT_BYTES:
@@ -67,6 +125,8 @@ def project_data(path: Path) -> tuple[int, int, bytes]:
         data = stream.read(size)
         if len(data) != size:
             raise ValueError('读取 SRPG Studio 数据时文件发生变化，请重新打开游戏目录。')
+    if encrypted:
+        data = decrypt_project(data, version)
     return version, segments, data
 
 

@@ -17,3 +17,11 @@ patch application, and game-file writes are not used.
 The adapter's archive-header handling follows the upstream `FileHeader.cpp`
 format. The upstream license is retained here for both the component and format
 adaptation. The release executable is checksum-verified before every invocation.
+
+Textlight also follows upstream `Crypt.h` / `Crypt.cpp` to decode the standard
+encrypted SDTS project stream with Windows CryptoAPI (MD5 / RC4). Both default
+key generations, before and since 1.301, are handled in `srpg.py`. The original
+MIT license is retained in this directory. Only the project segment is decoded
+in memory; temporary project files are removed after parsing. No game files
+are modified and no resource or script sections are unpacked. Custom encryption
+and the older non-SDTS archive format are not supported.
