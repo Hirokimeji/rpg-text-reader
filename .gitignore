@@ -35,3 +35,7 @@ venv/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Local downloaded app and optional runtime copies
+/Textlight.exe
+/增强读取组件/

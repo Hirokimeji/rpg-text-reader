@@ -66,6 +66,105 @@ class ExtractionTests(unittest.TestCase):
         self.assertEqual(game_root(self.root / 'data'), self.root.resolve())
         self.assertEqual(result.engine, 'RPG Maker MZ')
 
+    def test_langscore_auto_chinese_matching_and_explicit_mtool_priority(self):
+        from test_langscore import write_csv
+        (self.root / 'js/plugins.js').write_text('var $plugins = [{"name":"Langscore","status":true,"parameters":{}}];', encoding='utf-8')
+        write_csv(self.root, 'Map001', [('Hello\nWorld', 'Hello\nWorld', 'CSV中文对白')])
+        write_csv(self.root, 'Actors', [('Alice', 'Alice', '爱丽丝')])
+        result = extract(str(self.root))
+        row = next(r for r in result.records if r.raw == 'Hello\nWorld')
+        self.assertEqual((row.original, row.translation, row.speaker), ('Hello\nWorld', 'CSV中文对白', '爱丽丝'))
+        self.assertEqual(result.stats['translation_language'], 'zh-cn')
+        self.assertEqual(result.translation_file, str(self.root / 'data/translate'))
+        explicit = self.run_extract()
+        self.assertEqual(next(r.translation for r in explicit.records if r.raw == 'Hello\nWorld'), '你好\n世界')
+        self.assertNotIn('translation_language', explicit.stats)
+        (self.root / 'js/plugins.js').write_text('var $plugins = [{"name":"Langscore","status":false,"parameters":{}}];', encoding='utf-8')
+        self.assertTrue(all(not r.translation for r in extract(str(self.root)).records))
+
+    def test_map_cache_fallback_is_marked_as_fragments_and_native_data_wins(self):
+        packed = self.root / 'packed'
+        cache = packed / 'MTool_MapDataCache'
+        cache.mkdir(parents=True)
+        exe = packed / 'Game.exe'
+        exe.write_bytes(b'never execute')
+        document = json.loads((self.root / 'data/Map001.json').read_text(encoding='utf-8'))
+        document['events'].append({'id': 99, 'x': 1, 'y': 1})  # Position-only cache entries carry no dialogue.
+        (cache / '1.json').write_text(json.dumps(document), encoding='utf-8')
+        before = (cache / '1.json').read_bytes()
+        self.assertEqual(game_root(exe), packed.resolve())
+        result = extract(str(exe))
+        self.assertTrue(any(r.raw == 'Hello\nWorld' for r in result.records))
+        self.assertEqual(result.stats['coverage']['cached_maps'], 1)
+        self.assertTrue(result.stats['coverage']['partial_reason'])
+        self.assertTrue(all(r.source.startswith('MTool_MapDataCache/1.json:') for r in result.records))
+        folder = export_records(result, result.records, str(packed / 'out'))
+        self.assertIn('仅读取已缓存地图', next(folder.glob('*.txt')).read_text(encoding='utf-8-sig'))
+        self.assertEqual((cache / '1.json').read_bytes(), before)
+        shutil.copytree(cache, self.root / 'MTool_MapDataCache')
+        native = extract(str(self.root))
+        self.assertEqual(native.engine, 'RPG Maker MZ')
+        self.assertNotIn('partial_reason', native.stats['coverage'])
+
+    def test_packed_ace_without_data_or_cache_reports_what_is_missing(self):
+        folder = self.root / 'protected'
+        folder.mkdir()
+        exe = folder / 'Game.exe'
+        exe.write_bytes(b'never execute')
+        (folder / 'Game.ini').write_text('[Game]\nLibrary=System\\RGSS301.dll\n', encoding='utf-8')
+        with self.assertRaisesRegex(ValueError, 'VX Ace.*Data'):
+            extract(str(exe))
+
+    def test_encrypted_common_events_are_counted_and_searchable(self):
+        import base64
+        from unittest.mock import patch
+        from test_encrypted_json import CIPHER, install_profile
+        profiles = install_profile(self.root)
+        encrypted = self.root / 'data/CommonEvents.json'
+        encrypted.write_bytes(base64.b64encode(CIPHER))
+        before = encrypted.read_bytes()
+        with patch('encrypted_json.PROFILES', profiles):
+            result = extract(str(self.root))
+        self.assertTrue(any(r.original == '补回的中文对白\n下一行' for r in result.records))
+        self.assertTrue(any(r.category == '选项' and r.original == '继续' for r in result.records))
+        self.assertEqual(result.stats['coverage']['decrypted_files'], ['CommonEvents.json'])
+        self.assertEqual(result.stats['coverage']['incomplete_files'], [])
+        self.assertEqual(encrypted.read_bytes(), before)
+
+    def test_unreadable_events_wrong_shapes_and_missing_maps_mark_partial_exports(self):
+        target = self.root / 'data/CommonEvents.json'
+        for content in ('not json', '{"wrong":"shape"}'):
+            with self.subTest(content=content):
+                target.write_text(content, encoding='utf-8')
+                result = extract(str(self.root))
+                self.assertEqual(result.stats['coverage']['incomplete_files'], ['CommonEvents.json'])
+                self.assertTrue(result.records)
+        folder = export_records(result, result.records, str(self.root / 'out'))
+        text = next(folder.glob('*.txt')).read_text(encoding='utf-8-sig')
+        self.assertIn('本次导出可能缺少内容', text)
+        manifest = json.loads((folder / '导出清单.json').read_text(encoding='utf-8'))
+        self.assertEqual(manifest['coverage']['incomplete_files'], ['CommonEvents.json'])
+        xlsx = export_records(result, result.records, str(self.root / 'out'), fmt='xlsx')
+        from openpyxl import load_workbook
+        book = load_workbook(next(xlsx.glob('*.xlsx')), read_only=True)
+        try:
+            info = dict(book['说明'].iter_rows(values_only=True))
+            self.assertEqual(info['未读取文件'], 'CommonEvents.json')
+        finally:
+            book.close()
+        (self.root / 'data/Map001.json').unlink()
+        result = extract(str(self.root))
+        self.assertIn('Map001.json', result.stats['coverage']['incomplete_files'])
+        self.assertEqual(result.stats['coverage']['read_indexed_maps'], 0)
+
+    def test_unindexed_broken_maps_are_reported_separately(self):
+        (self.root / 'data/Map999.json').write_bytes(b'\0' * 30)
+        result = extract(str(self.root))
+        coverage = result.stats['coverage']
+        self.assertEqual(coverage['incomplete_files'], [])
+        self.assertEqual(coverage['unused_unread_files'], ['Map999.json'])
+        self.assertEqual((coverage['read_indexed_maps'], coverage['indexed_maps']), (1, 1))
+
     def test_json_runtime_takes_priority_over_leftover_ace_data(self):
         for name in ('System', 'MapInfos', 'CommonEvents'):
             (self.root / 'data' / (name + '.rvdata2')).write_bytes(b'old data must not be parsed')

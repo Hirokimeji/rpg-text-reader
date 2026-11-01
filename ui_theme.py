@@ -23,6 +23,7 @@ QLabel#section { font-size: 15px; font-weight: 600; color: #dfc0ee; }
 QLabel#step { color: #deb4ea; background: #4b335e; border-radius: 7px; padding: 4px 7px; font-size: 11px; font-weight: 600; }
 QLabel#badge { color: #dcb6eb; background: #3e2c51; border: 1px solid #73568d; border-radius: 12px; padding: 7px 12px; font-size: 12px; }
 QLabel#summary { color: #d1b8df; background: #352640; border: 1px solid #5c436e; border-radius: 9px; padding: 7px 12px; font-size: 12px; }
+QLabel#summary[partial="true"] { color: #ffd5bb; background: #493044; border-color: #bd8290; }
 QLabel#emptyTitle { font-size: 19px; color: #d8b1ea; font-weight: 600; }
 QLabel#emptyNote { color: #c1a7cf; font-size: 13px; }
 QLabel#emptyTag { color: #c8a1dc; background: #412c56; border-radius: 10px; padding: 5px 11px; font-size: 11px; }

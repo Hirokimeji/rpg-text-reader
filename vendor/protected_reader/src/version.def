@@ -1,0 +1,8 @@
+LIBRARY version
+EXPORTS
+GetFileVersionInfoA=tl_info_a@16
+GetFileVersionInfoW=tl_info_w@16
+GetFileVersionInfoSizeA=tl_size_a@8
+GetFileVersionInfoSizeW=tl_size_w@8
+VerQueryValueA=tl_query_a@16
+VerQueryValueW=tl_query_w@16

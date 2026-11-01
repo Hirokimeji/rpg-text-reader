@@ -66,6 +66,34 @@ class GuiTests(unittest.TestCase):
         self.window.reset_filters()
         self.assertIs(self.window.table_stack.currentWidget(), self.window.table)
 
+    def test_partial_read_notice_survives_filtering_and_resets_for_next_game(self):
+        partial = self.fixture.root / 'data/CommonEvents.json'
+        partial.write_text('encrypted or damaged', encoding='utf-8')
+        from engine import extract
+        result = extract(str(self.fixture.root))
+        self.window.loaded(result)
+        self.assertIn('部分提取完成', self.window.activity.text())
+        self.assertIn('部分内容未读取', self.window.summary.text())
+        self.assertIn('（1）', self.window.report_button.text())
+        self.window.search.setText('Hello')
+        self.window.filter()
+        self.assertIn('部分内容未读取', self.window.summary.text())
+        self.window.loaded(self.result)
+        self.assertNotIn('部分内容未读取', self.window.summary.text())
+        self.assertEqual(self.window.report_button.text(), '提取报告')
+        self.assertFalse(self.window.summary.property('partial'))
+
+    def test_cache_fragment_notice_and_translation_source_are_visible(self):
+        self.result.stats['coverage']['partial_reason'] = '缓存仅含部分地图事件。'
+        self.result.stats['coverage']['cached_maps'] = 1
+        self.result.stats['translation_source'] = 'Langscore · 简体中文'
+        self.window.loaded(self.result)
+        self.assertIn('缓存片段', self.window.summary.text())
+        self.assertIn('Langscore · 简体中文', self.window.summary.text())
+        self.assertIn('片段', self.window.report_button.text())
+        self.assertIn('不包含完整游戏文本', self.window.activity.text())
+        self.assertTrue(self.window.summary.property('partial'))
+
     def test_pagination_keeps_full_search_and_copy_scope(self):
         template = next(r for r in self.result.records if r.category == '对白')
         self.result.records = [replace(template, seq=i+1) for i in range(501)]

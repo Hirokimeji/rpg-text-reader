@@ -22,7 +22,7 @@ from ui_theme import STYLE, NotebookCanvas, PaperCard, EmptyPage, mascot, apply_
 
 
 APP_NAME = '台词拾光'
-APP_VERSION = '1.4.2'
+APP_VERSION = '1.4.5'
 
 
 
@@ -459,7 +459,7 @@ class MainWindow(QMainWindow):
             self.load(path)
 
     def browse_file(self):
-        path, _ = QFileDialog.getOpenFileName(self, '选择游戏 EXE 或翻译文件', '', '游戏或翻译 (*.exe *.json);;所有文件 (*)')
+        path, _ = QFileDialog.getOpenFileName(self, '选择游戏或翻译文件', '', '游戏或翻译 (*.exe *.rgss3a *.json);;所有文件 (*)')
         if path:
             self.load(path)
 
@@ -552,7 +552,15 @@ class MainWindow(QMainWindow):
         self.status_filter.blockSignals(False)
         self.build_tree()
         self.report_button.setEnabled(True)
-        self.activity.setText(f'提取完成 · {len(result.records):,} 条 · 已保留来源位置')
+        missing = result.stats.get('coverage', {}).get('incomplete_files', [])
+        reason = result.stats.get('coverage', {}).get('partial_reason', '')
+        self.report_button.setText('提取报告（片段）' if reason else f'提取报告（{len(missing)}）' if missing else '提取报告')
+        self.summary.setProperty('partial', bool(missing or reason))
+        self.summary.style().unpolish(self.summary)
+        self.summary.style().polish(self.summary)
+        self.activity.setText('缓存片段提取完成 · 不包含完整游戏文本，请查看提取报告' if reason else
+                              f'部分提取完成 · {len(missing)} 个文件未读取，请查看提取报告' if missing
+                              else f'提取完成 · {len(result.records):,} 条 · 已保留来源位置')
         self.filter()
 
     def build_tree(self):
@@ -629,8 +637,11 @@ class MainWindow(QMainWindow):
         self.table_page = 0
         self.turn_table(0)
         self.count.setText(f'文本 · {len(indices):,} 条')
-        source = Path(self.result.translation_file).name if self.result.translation_file else '游戏内现有文本'
-        self.summary.setText(f'{self.result.title}  ·  共 {len(self.result.records):,} 条 / {self.result.stats["scenes"]:,} 个场景  ·  来源：{source}')
+        source = self.result.stats.get('translation_source') or (Path(self.result.translation_file).name if self.result.translation_file else '游戏内现有文本')
+        missing = self.result.stats.get('coverage', {}).get('incomplete_files', [])
+        reason = self.result.stats.get('coverage', {}).get('partial_reason', '')
+        notice = '⚠ 缓存片段，非完整游戏文本  ·  ' if reason else f'⚠ 部分内容未读取（{len(missing)} 个文件），请查看提取报告  ·  ' if missing else ''
+        self.summary.setText(notice + f'{self.result.title}  ·  共 {len(self.result.records):,} 条 / {self.result.stats["scenes"]:,} 个场景  ·  来源：{source}')
         self.read_button.setEnabled(bool(indices))
         self.copy_results_button.setEnabled(bool(indices))
         if not indices:
@@ -754,6 +765,20 @@ class MainWindow(QMainWindow):
         lines.extend(f'  {key}：{value:,}' for key, value in r.stats['categories'].items())
         lines.extend(['', '匹配状态'])
         lines.extend(f'  {key}：{value:,}' for key, value in r.stats['statuses'].items())
+        coverage = r.stats.get('coverage')
+        if coverage:
+            lines.extend(['', '文件读取'])
+            if coverage.get('partial_reason'):
+                lines.append('  提取范围：' + coverage['partial_reason'])
+            if coverage.get('cached_maps') is not None:
+                lines.append(f'  缓存地图：{coverage["cached_maps"]} 张（游戏总地图数未知）')
+            if coverage.get('indexed_maps') is not None:
+                lines.append(f'  地图索引：{coverage["read_indexed_maps"]} / {coverage["indexed_maps"]} 张已读取')
+            for key, title in (('decrypted_files', '解密读取'), ('incomplete_files', '未能读取，可能缺少内容'),
+                               ('unused_unread_files', '不可读的未索引地图，可能为残留文件')):
+                values = coverage.get(key, [])
+                if values:
+                    lines.append(f'  {title}：' + '、'.join(values))
         lines.extend(['', '提取说明', *('• ' + w for w in r.warnings)])
         pane.setPlainText('\n'.join(lines))
         layout.addWidget(pane)

@@ -42,7 +42,7 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
-          python -m unittest -v test_engine test_gui.GuiTests test_rgss test_srpg test_unity
+          python -m unittest -v test_engine test_encrypted_json test_langscore test_gui.GuiTests test_rgss test_rgss_archive test_protected_reader test_srpg test_unity
           Write-Output "Verification process exit code: $LASTEXITCODE"
           if ($LASTEXITCODE -ne 0) { throw 'Verification failed.' }
 
@@ -53,12 +53,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Executable build failed.' }
           python package_release.py
           if ($LASTEXITCODE -ne 0) { throw 'Portable packaging failed.' }
+          python package_release.py --offline
+          if ($LASTEXITCODE -ne 0) { throw 'Offline packaging failed.' }
 
       - name: Prepare download files and checksums
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path artifacts -Force | Out-Null
-          Copy-Item -LiteralPath 'release/台词拾光_1.4.2_便携版.zip' -Destination 'artifacts/textlight-1.4.2-windows-x64.zip'
+          Copy-Item -LiteralPath 'release/台词拾光_1.4.5_便携版.zip' -Destination 'artifacts/textlight-1.4.5-windows-x64.zip'
+          Copy-Item -LiteralPath 'release/台词拾光_1.4.5_离线增强版.zip' -Destination 'artifacts/textlight-1.4.5-windows-x64-offline.zip'
           Copy-Item -LiteralPath 'dist/台词拾光.exe' -Destination 'artifacts/Textlight.exe'
           $checksums = Get-ChildItem -LiteralPath artifacts -File | Sort-Object Name | ForEach-Object {
             $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -66,7 +69,8 @@ jobs:
           }
           Set-Content -LiteralPath artifacts/SHA256SUMS.txt -Value $checksums -Encoding ascii
 
-      - name: Publish v1.4.2 with portable downloads
+      - name: Publish v1.4.5 with portable downloads
+        if: github.event_name == 'workflow_dispatch'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -80,16 +84,20 @@ jobs:
           }
           $release = $null
           try {
-            $release = Invoke-RestMethod -Uri "$base/releases/tags/v1.4.2" -Headers $headers
+            $release = Invoke-RestMethod -Uri "$base/releases/tags/v1.4.5" -Headers $headers
           } catch {
             if ([int]$_.Exception.Response.StatusCode -ne 404) { throw }
           }
+          if ($null -ne $release -and -not $release.draft) {
+            Write-Output 'This version is already published; update the version before publishing again.'
+            exit 0
+          }
           if ($null -eq $release) {
             $payload = @{
-              tag_name = 'v1.4.2'
+              tag_name = 'v1.4.5'
               target_commitish = $env:GITHUB_SHA
-              name = '台词拾光 1.4.2 · Windows 便携版'
-              body = Get-Content -LiteralPath docs/release-notes-1.4.2.md -Raw -Encoding utf8
+              name = '台词拾光 1.4.5 · 离线增强版与便携版'
+              body = Get-Content -LiteralPath docs/release-notes-1.4.5.md -Raw -Encoding utf8
               draft = $true
               prerelease = $false
             } | ConvertTo-Json

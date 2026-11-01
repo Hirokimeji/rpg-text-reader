@@ -28,9 +28,12 @@ def record_text(r: Record, bilingual=False, raw=False):
     return body
 
 
-def text_export(path, records, title, bilingual, raw, check):
+def text_export(path, records, title, bilingual, raw, check, incomplete=False):
     with path.open('w', encoding='utf-8-sig', newline='\n') as f:
         f.write(f'{title}\n台词拾光 · 游戏文本参考\n场景按数据结构排列，不代表实际游玩顺序。\n\n')
+        if incomplete:
+            note = incomplete if isinstance(incomplete, str) else '部分文件未能读取，本次导出可能缺少内容。'
+            f.write('注意：' + note + '详见导出清单。\n\n')
         previous = None
         for n, r in enumerate(records):
             if n % 500 == 0:
@@ -59,10 +62,14 @@ def excel_export(path, records, result, check):
             c.font = Font(color='FFFFFF', bold=True)
             c.fill = PatternFill('solid', fgColor='146C67')
         return c
+    coverage = result.stats.get('coverage', {})
     for key, value in [('游戏', result.title), ('引擎', result.engine), ('文本条数', len(records)),
                        ('翻译文件', result.translation_file or '未使用外部翻译'),
                        ('阅读顺序', '按地图、事件、事件页排列，不代表实际游玩顺序。'),
                        ('长文本', '超过 Excel 单元格长度的文字分为多个续段；序号和来源相同。'),
+                       ('未读取文件', '、'.join(coverage.get('incomplete_files', [])) or '未发现文件读取失败'),
+                       ('解密读取文件', '、'.join(coverage.get('decrypted_files', [])) or '无'),
+                       ('提取范围', coverage.get('partial_reason') or '已读取现有可解析数据；不保证覆盖动态文字及图片文字。'),
                        ('提取说明', '\n'.join(result.warnings))]:
         info.append([safe_cell(info, key), safe_cell(info, value)])
     headers = ['序号', '地图／分组', '场景', '类别', '说话人', '阅读文本', '原文／游戏内文本', '译文',
@@ -147,13 +154,15 @@ def export_records(result: Result, records: list[Record], target: str, fmt='txt'
         final = folder / name
         temporary = folder / (name + '.part')
         if fmt == 'txt':
-            text_export(temporary, subset, result.title, bilingual, raw, check)
+            text_export(temporary, subset, result.title, bilingual, raw, check,
+                        result.stats.get('coverage', {}).get('partial_reason')
+                        or bool(result.stats.get('coverage', {}).get('incomplete_files')))
         else:
             excel_export(temporary, subset, result, check)
         temporary.replace(final)
         files.append({'file': name, 'records': len(subset), 'scene': subset[0].scene if split else '汇总'})
     (folder / '导出清单.json').write_text(json.dumps({'title': result.title, 'engine': result.engine,
         'source': result.root, 'translation_file': result.translation_file, 'records': len(records),
-        'warnings': result.warnings, 'files': files}, ensure_ascii=False, indent=2), encoding='utf-8')
+        'warnings': result.warnings, 'coverage': result.stats.get('coverage'), 'files': files}, ensure_ascii=False, indent=2), encoding='utf-8')
     marker.unlink()
     return folder

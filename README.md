@@ -16,11 +16,13 @@
 
 支持 RPG Maker、SRPG Studio 和部分 Unity 游戏，也能读取 MTool 翻译文件。提取后可按场景浏览，查看原文与译文，导出 TXT 或 Excel。
 
-程序在本地读取文件，不需要启动游戏，也不会修改游戏数据。
+程序在本地处理文本，不会修改游戏目录。普通提取直接读文件；部分封装游戏会通过隔离组件读取临时副本。
 
 ## 下载和使用
 
 适用于 **Windows 10 / 11，64 位**。从 [Releases](https://github.com/Hirokimeji/rpg-text-reader/releases/latest) 下载便携包，解压后打开 `台词拾光.exe`，无需安装 Python、Excel 或 MTool。
+
+[离线增强版（无需再下载组件）](https://github.com/Hirokimeji/rpg-text-reader/releases/download/v1.4.5/textlight-1.4.5-windows-x64-offline.zip) · [普通便携版](https://github.com/Hirokimeji/rpg-text-reader/releases/download/v1.4.5/textlight-1.4.5-windows-x64.zip)
 
 1. 将游戏 EXE 或文件夹拖进窗口，也可以点击“选择游戏文件夹”。
 2. 提取完成后，在左侧选场景，中间搜索台词，右侧阅读正文。“连续阅读”可以查看前后文。
@@ -28,7 +30,13 @@
 
 默认只显示对白和选项，并优先显示译文。想看物品、技能等文字，可以切换到“所有文本类别”。
 
+使用 Langscore 汉化的游戏会自动加载中文翻译表，优先简体中文。空译文或未匹配的条目保留原文。
+
 游戏目录中有 MTool 翻译文件时，程序会查找可用的 JSON；也可以通过“切换翻译文件”手动选择。单独拖入翻译 JSON 也能打开，但没有游戏数据就无法对应到场景。
+
+遇到支持的 VX Ace EXE 封装时，会自动尝试增强读取。首次使用需要联网下载约 152 MB 的运行组件，之后可以离线使用；游戏和文本不会上传。读取过程中可以取消，临时副本会在结束后清理。请保留完整游戏文件夹及同目录的原始 EXE 备份。
+
+**不方便联网时，使用离线增强版。** 这个包已经附带组件，完整解压后即可使用，请保留 EXE 旁的“增强读取组件”文件夹。
 
 > 请下载 Releases 中的便携包。仓库页面的 **Code → Download ZIP** 是源码。
 
@@ -37,16 +45,19 @@
 | 类型 | 支持范围 |
 | --- | --- |
 | RPG Maker MV / MZ | `data/` 或 `www/data/` 中的标准 JSON 数据 |
-| RPG Maker VX Ace | 已展开的 `Data/*.rvdata2` |
+| RPG Maker VX Ace | 已展开的 `Data/*.rvdata2`、标准 `.rgss3a` 数据包及部分 EXE 封装 |
 | SRPG Studio | 1.140–1.322 的标准 `data.dts`（含引擎标准加密），暂不读取外部语言包 |
 | Unity | 标准文本资源、外置文本，以及能够解析结构的对白对象；兼容情况因游戏而异 |
-| MTool | “原文：译文”形式的字符串 JSON 字典 |
+| Langscore | MV / MZ 汉化插件的中文 CSV 翻译表 |
+| MTool | “原文：译文”形式的 JSON 字典；地图缓存可读取已有事件片段 |
 
-暂不支持 RPG Maker XP / VX、加密归档和图片中的文字。Unity 的自定义封装、加密资源，以及缺少可恢复类型信息的对象也可能读不到。遇到提取不全的情况，可以先查看窗口中的“提取报告”。
+暂不支持 RPG Maker XP / VX 和图片中的文字。EXE 保护封装并非全部兼容；Unity 的自定义封装、加密资源，以及缺少可恢复类型信息的对象也可能读不到。遇到提取不全的情况，可以先查看窗口中的“提取报告”。
+
+只有 MTool 地图缓存、没有完整游戏数据时，工具会标记为“缓存片段”。缓存不包含未加载的地图、公共事件和数据库，无法据此还原完整剧情。
 
 场景按文件中的地图、事件或资源分组，顺序不一定等于实际剧情顺序。变量和角色引用会保留为占位符，运行时才生成的内容无法直接还原。
 
-工具只读取已有文本，不提供机器翻译。内嵌汉化游戏只能读取汉化后的内容；有原译对照的 MTool 文件会保留两者。
+工具只读取已有文本，不提供机器翻译。仅在运行时替换文字的汉化插件可能读到原文；有原译对照的 MTool 文件会保留两者。
 
 ## 从源码运行
 
@@ -72,7 +83,7 @@ EXE 生成在 `dist/`，便携包生成在 `release/`。
 运行测试：
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest -v test_engine test_gui.GuiTests test_rgss test_srpg test_unity
+.\.venv\Scripts\python.exe -m unittest -v test_engine test_encrypted_json test_langscore test_gui.GuiTests test_rgss test_rgss_archive test_protected_reader test_srpg test_unity
 ```
 
 ## 问题反馈

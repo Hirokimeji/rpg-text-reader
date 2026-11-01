@@ -11,7 +11,9 @@ if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
 root = Path(__file__).resolve().parent
-release = root / 'release' / '台词拾光_1.4.2_便携版'
+offline = '--offline' in sys.argv
+release_name = '台词拾光_1.4.5_' + ('离线增强版' if offline else '便携版')
+release = root / 'release' / release_name
 release.mkdir(parents=True, exist_ok=True)
 licenses = release / '第三方许可'
 licenses.mkdir(exist_ok=True)
@@ -51,8 +53,9 @@ for filename, url in [('LGPL-3.0.txt', 'https://raw.githubusercontent.com/qt/qtb
     '对这些 LGPL 组件的替换、修改和为调试修改而进行的逆向工程不施加额外限制。\n', encoding='utf-8-sig')
 source_folder = release / '源代码'
 source_folder.mkdir(exist_ok=True)
-for name in ('app.py', 'ui_theme.py', 'engine.py', 'exporter.py', 'rgss.py', 'srpg.py', 'unity_reader.py', 'app.ico', 'requirements.txt', 'build.ps1', 'textlight.spec', 'package_release.py', 'version_info.txt', 'test_engine.py', 'test_gui.py', 'test_rgss.py', 'test_srpg.py', 'test_unity.py'):
+for name in ('app.py', 'ui_theme.py', 'engine.py', 'encrypted_json.py', 'langscore.py', 'rgss_archive.py', 'protected_reader.py', 'win_sandbox.py', 'build_reader_helpers.py', 'exporter.py', 'rgss.py', 'srpg.py', 'unity_reader.py', 'app.ico', 'requirements.txt', 'build.ps1', 'textlight.spec', 'package_release.py', 'version_info.txt', 'test_engine.py', 'test_encrypted_json.py', 'test_langscore.py', 'test_rgss_archive.py', 'test_protected_reader.py', 'test_gui.py', 'test_rgss.py', 'test_srpg.py', 'test_unity.py'):
     shutil.copy2(root/name, source_folder/name)
+shutil.copytree(root/'vendor'/'protected_reader', source_folder/'vendor'/'protected_reader', dirs_exist_ok=True)
 shutil.copytree(root/'vendor'/'srpg', source_folder/'vendor'/'srpg', dirs_exist_ok=True)
 shutil.copytree(root/'third_party', source_folder/'third_party', dirs_exist_ok=True)
 shutil.copy2(root/'vendor'/'srpg'/'LICENSE', licenses/'SRPG-ToolBox-MIT.txt')
@@ -64,12 +67,33 @@ shutil.copytree(root/'assets'/'icons', source_folder/'assets'/'icons', dirs_exis
 shutil.copytree(root/'assets'/'ui', source_folder/'assets'/'ui', dirs_exist_ok=True)
 shutil.copy2(root/'README.md', release/'使用说明.md')
 shutil.copy2(root/'quickstart.txt', release/'先看这里.txt')
+shutil.copy2(root/'third_party'/'compat-reader-notices.md', licenses/'增强读取组件说明.md')
+for name in ('BoxedWine-GPL-2.0.txt', 'Wine-LGPL-2.1.txt'):
+    shutil.copy2(root/'third_party'/name, licenses/name)
+if offline:
+    from protected_reader import ensure_components, COMPONENTS
+    components = ensure_components()
+    offline_folder = release/'增强读取组件'
+    offline_folder.mkdir(exist_ok=True)
+    for name, _, _, _ in COMPONENTS:
+        shutil.copy2(components/name, offline_folder/name)
+    runtime_notes = licenses/'Wine文件系统资料'
+    runtime_notes.mkdir(exist_ok=True)
+    with zipfile.ZipFile(components/'wine.zip') as source:
+        for name in source.namelist():
+            if name in ('build.txt', 'installed.txt', 'recreateInstructions.txt') or (
+                    not name.endswith('/') and any(token in name.lower() for token in ('license', 'copying'))):
+                (runtime_notes/name.replace('/', '_')).write_bytes(source.read(name))
+    (offline_folder/'说明.txt').write_text(
+        '此目录包含离线增强读取组件。请将整个目录与台词拾光.exe 放在一起。\n'
+        '保留完整目录即可离线使用，无需下载或安装 Docker、WSL。\n'
+        '来源、许可与源码获取信息见 ../第三方许可/增强读取组件说明.md。\n', encoding='utf-8-sig')
 if (root/'docs'/'images').is_dir():
     shutil.copytree(root/'docs'/'images', release/'docs'/'images', dirs_exist_ok=True)
 shutil.copy2(root/'dist'/'台词拾光.exe', release/'台词拾光.exe')
 exe = release/'台词拾光.exe'
 (release/'SHA256.txt').write_text(hashlib.sha256(exe.read_bytes()).hexdigest()+'  台词拾光.exe\n', encoding='utf-8')
-archive = root/'release'/'台词拾光_1.4.2_便携版.zip'
+archive = root/'release'/(release_name+'.zip')
 with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as z:
     for path in sorted(release.rglob('*')):
         if path.is_file():

@@ -1,4 +1,4 @@
-"""Read-only RPG Maker MV/MZ and MTool extraction. No game code is executed."""
+"""Read-only game text readers and isolated compatibility extraction."""
 from __future__ import annotations
 
 import json
@@ -10,6 +10,10 @@ from typing import Callable
 from rgss import read_rgss
 from srpg import is_srpg, clean_srpg, extract_srpg
 from unity_reader import unity_data, clean_unity, extract_unity
+from encrypted_json import GameJsonReader
+from langscore import load_langscore
+from rgss_archive import find_archive, prepare_archive
+from protected_reader import packed_game, prepare_protected
 
 
 STORY = {'对白', '滚动文字', '选项'}
@@ -77,6 +81,10 @@ def has_json_runtime(root: Path) -> bool:
     )
 
 
+def has_map_cache(root: Path) -> bool:
+    return any(p.stem.isdigit() for p in (root / 'MTool_MapDataCache').glob('*.json'))
+
+
 def game_root(path: str | Path) -> Path | None:
     path = Path(path).resolve()
     base = path.parent if path.is_file() else path
@@ -93,6 +101,13 @@ def game_root(path: str | Path) -> Path | None:
         if has_json_runtime(root):
             return root
         if (root / 'Data' / 'System.rvdata2').is_file() and (root / 'Data' / 'MapInfos.rvdata2').is_file():
+            return root
+        if find_archive(root):
+            return root
+        if packed_game(root):
+            return root
+    for root in candidates:
+        if has_map_cache(root):
             return root
     return None
 
@@ -139,8 +154,9 @@ def translation_candidates(root: Path) -> list[Path]:
 
 
 class Translator:
-    def __init__(self, path: Path | None):
-        self.path = path
+    def __init__(self, path: Path | None, tables=None):
+        self.path = path or (tables.folder if tables else None)
+        self.tables = tables
         self.data: dict[str, str] = {}
         self.used: set[str] = set()
         self.index: dict[str, str] = {}
@@ -150,21 +166,35 @@ class Translator:
             for key in data:
                 self.index.setdefault(normalize(key), key)
 
-    def find(self, text: str) -> str | None:
+    @property
+    def entry_count(self):
+        return len(self.tables.entries) if self.tables else len(self.data)
+
+    def unused_entries(self):
+        if self.tables:
+            yield from self.tables.unused_entries()
+        else:
+            for index, (key, value) in enumerate(self.data.items(), 1):
+                if key not in self.used:
+                    yield key, value, f'{self.path.name}:条目 {index}'
+
+    def find(self, text: str, source: str = '') -> str | None:
+        if self.tables:
+            return self.tables.find(text, source)
         key = text if text in self.data else self.index.get(normalize(text))
         if key is None or not self.data[key].strip():
             return None
         self.used.add(key)
         return self.data[key]
 
-    def translate(self, text: str) -> tuple[str, str]:
+    def translate(self, text: str, source: str = '') -> tuple[str, str]:
         if not self.path:
             return '', '游戏内文本'
-        exact = self.find(text)
+        exact = self.find(text, source)
         if exact is not None:
             return exact, '已匹配'
         lines = normalize(text).split('\n')
-        translated = [self.find(line) if line.strip() else None for line in lines]
+        translated = [self.find(line, source) if line.strip() else None for line in lines]
         found = sum(v is not None for v in translated)
         if not found:
             return '', '未匹配'
@@ -263,6 +293,46 @@ def json_from_js(source: str):
 
 def extract(path: str, translation: str = '', progress: Callable | None = None,
             cancelled: Callable | None = None) -> Result:
+    try:
+        with prepare_protected(path, progress, cancelled) as (source, protected):
+            result = _extract_archive(str(source), translation, progress, cancelled)
+            if protected:
+                result.root = protected.pop('root')
+                result.stats['protected_reader'] = protected
+                label = protected['backup'] or protected['source']
+                result.stats['coverage']['decrypted_files'].append(label + '（隔离兼容读取）')
+                result.warnings.append('封装数据通过临时副本隔离读取；未修改游戏文件。'
+                                       + (f' 使用原始备份 {protected["backup"]}。' if protected['backup'] else ''))
+            return result
+    except InterruptedError:
+        raise
+    except (OSError, ValueError) as exc:
+        game = packed_game(path)
+        if not game:
+            raise
+        if has_map_cache(game.root):
+            result = _extract(path, translation, progress, cancelled)
+            result.warnings.append(f'增强读取未完成，当前结果仅为缓存片段：{exc}')
+            result.stats['protected_reader'] = {'error': str(exc)}
+            return result
+        raise ValueError(f'增强读取未完成：{exc}') from exc
+
+
+def _extract_archive(path: str, translation: str = '', progress: Callable | None = None,
+                     cancelled: Callable | None = None) -> Result:
+    with prepare_archive(path, progress, cancelled) as (prepared, archive):
+        result = _extract(str(prepared), translation, progress, cancelled)
+        if archive:
+            result.root = str(archive.parent.resolve())
+            result.stats['archive'] = archive.name
+            result.stats['coverage']['decrypted_files'].append(archive.name)
+            result.warnings = [w.replace('读取已展开的 .rvdata2', '读取 RGSS 数据包中的 .rvdata2')
+                               for w in result.warnings]
+        return result
+
+
+def _extract(path: str, translation: str = '', progress: Callable | None = None,
+             cancelled: Callable | None = None) -> Result:
     def tick(message):
         if cancelled and cancelled():
             raise InterruptedError('已取消提取。')
@@ -274,24 +344,41 @@ def extract(path: str, translation: str = '', progress: Callable | None = None,
         if Path(path).suffix.lower() == '.json':
             translation = path
         else:
+            source = Path(path)
+            base = source.parent if source.is_file() else source
+            ini = base / 'Game.ini'
+            try:
+                if ini.stat().st_size <= 128 * 1024 and re.search(rb'(?im)^\s*Library\s*=\s*.*RGSS3\d*\.dll', ini.read_bytes()):
+                    raise ValueError('识别到 RPG Maker VX Ace 启动配置，但未找到可读取的 Data 数据。数据可能封装在 EXE 中，或游戏文件不全；当前需要已展开 Data 的版本或含对白的 MTool 地图缓存。')
+            except OSError:
+                pass
             raise ValueError('没有找到可读取的 RPG Maker、SRPG Studio 或 Unity 数据。请选择游戏主目录、www／*_Data 目录或翻译 JSON。')
     tick('正在读取翻译文件…')
     tr = Translator(Path(translation) if translation else None)
     result = Result(Path(path).stem, '翻译字典', str(root or Path(path).parent), translation)
     srpg = bool(root and is_srpg(root))
     unity = bool(root and unity_data(root))
+    cache_only = bool(root and not srpg and not unity and not has_json_runtime(root)
+                      and not ((root / 'Data/System.rvdata2').is_file() and (root / 'Data/MapInfos.rvdata2').is_file())
+                      and has_map_cache(root))
     clean_text = clean_unity if unity else (clean_srpg if srpg else clean)
     engine_stats = {}
+    coverage = None
 
-    def add(raw, group, scene_id, scene, category, source, speaker='', context='', untranslated=False):
+    def add(raw, group, scene_id, scene, category, source, speaker='', context='', untranslated=False,
+            translated_override=None):
         if not isinstance(raw, str) or not raw.strip():
             return
-        translated, status = ('', '游戏内文本') if untranslated else tr.translate(raw)
+        if translated_override is not None:
+            translated = translated_override
+            status = '已匹配' if translated.strip() else '未匹配'
+        else:
+            translated, status = ('', '游戏内文本') if untranslated else tr.translate(raw, source)
         name_match = None if srpg or unity else NAME_TAG.search(translated or raw)
         if name_match:
             speaker = name_match[1]
         elif speaker:
-            speaker = tr.find(speaker) or speaker
+            speaker = tr.find(speaker, 'Actors.json') or tr.find(speaker, source) or speaker
         original = clean_text(raw)
         display_translation = clean_text(translated)
         if not original and not display_translation:
@@ -337,7 +424,7 @@ def extract(path: str, translation: str = '', progress: Callable | None = None,
                     add(choice, group, sid, scene, '选项', f'{loc}.parameters[0][{n}]', context=condition)
             elif code == 402:
                 value = p[1] if len(p) > 1 else str(p[0] if p else '')
-                branches[indent] = '选择：' + clean(tr.find(str(value)) or str(value))
+                branches[indent] = '选择：' + clean(tr.find(str(value), source) or str(value))
             elif code == 403:
                 branches[indent] = '选择：取消'
             elif code == 111:
@@ -363,23 +450,98 @@ def extract(path: str, translation: str = '', progress: Callable | None = None,
         result.engine = 'SRPG Studio'
         result.warnings.append(f'SRPG Studio 数据版本 {version}：按地图、事件和事件页整理；场景排列不等于剧情发生顺序。')
         result.warnings.append('仅读取 data.dts 内的项目文本；未读取外部 language.dat／localization.dat、插件动态生成文字及图片文字。未知控制符保留。')
+    elif cache_only:
+        result.title = root.name
+        result.engine = 'RPG Maker（MTool地图缓存）'
+        coverage = {'unread_files': [], 'incomplete_files': [], 'unused_unread_files': [],
+                    'decrypted_files': [], 'indexed_maps': None, 'read_indexed_maps': 0,
+                    'cached_maps': 0, 'partial_reason': '仅读取已缓存地图的部分事件；未读取未缓存地图、公共事件和数据库。'}
+        files = sorted((root / 'MTool_MapDataCache').glob('*.json'), key=lambda p: p.name)
+        for file in files:
+            if not file.stem.isdigit():
+                continue
+            tick(f'正在读取地图缓存 · {file.name}')
+            source = file.relative_to(root).as_posix()
+            try:
+                data = read_json(file)
+                if not isinstance(data, dict) or not isinstance(data.get('events'), (list, dict)):
+                    raise ValueError('不是包含事件的地图缓存。')
+                events = data['events']
+                if isinstance(events, dict):
+                    events = list(events.values())
+                coverage['cached_maps'] += 1
+                mid = int(file.stem)
+                name = data.get('name') or data.get('display_name') or '未命名地图'
+                group = f'缓存地图 {mid:03d} · {name}'
+                for event in events:
+                    if not isinstance(event, dict):
+                        continue
+                    eid = event.get('id', 0)
+                    for index, page in enumerate(event.get('pages', [])):
+                        if not isinstance(page, dict) or not isinstance(page.get('list'), list):
+                            continue
+                        sid = f'cache/Map{mid:03d}/event{eid}/page{index+1}'
+                        scene = f'事件 {eid} · {event.get("name") or "未命名事件"} / 第 {index+1} 页'
+                        commands(page['list'], group, sid, scene,
+                                 f'{source}:events[{eid}].pages[{index}]')
+            except (OSError, ValueError, TypeError) as error:
+                coverage['unread_files'].append(source)
+                coverage['incomplete_files'].append(source)
+                result.warnings.append(f'{source} 未提取：{error}')
+        result.warnings.append(coverage['partial_reason'])
+        result.warnings.append('缓存只能反映此前加载过的内容，无法据此判断游戏完整剧情或恢复缺少的数据。')
     elif root:
         # Ports can retain the original Ace data next to the current MV/MZ JSON.
         # Follow the installed runtime rather than reading the older language/data.
         ace = not has_json_runtime(root) and (root / 'Data' / 'System.rvdata2').is_file()
+        tables = None
+        if not ace and not translation:
+            plugin_list = root / 'js/plugins.js'
+            try:
+                source = plugin_list.read_text(encoding='utf-8-sig')
+                match = re.search(r'\$plugins\s*=\s*', source)
+                plugins = json_from_js(source[match.end():]) if match else []
+                if any(p.get('name', '').casefold() == 'langscore' and p.get('status') for p in plugins):
+                    tables = load_langscore(root)
+                    if tables:
+                        tr = Translator(None, tables)
+                        result.translation_file = str(tables.folder)
+                        result.warnings.extend(tables.warnings)
+            except (OSError, ValueError, TypeError, AttributeError):
+                pass  # Plugin parsing errors are reported by the normal plugin pass below.
         data_dir = root / ('Data' if ace else 'data')
         extension = '.rvdata2' if ace else '.json'
-        read_data = read_rgss if ace else read_json
+        json_reader = GameJsonReader(root)
+        read_data = read_rgss if ace else json_reader
         system = read_data(data_dir / ('System' + extension))
-        result.title = system.get('gameTitle') or root.name
+        if not isinstance(system, dict):
+            raise ValueError('System 数据结构无效，无法确认游戏信息。')
+        title = system.get('gameTitle') or root.name
+        result.title = tr.find(title, 'System.json') or title
         result.engine = 'RPG Maker VX Ace' if ace else ('RPG Maker MZ' if (root / 'js' / 'rmmz_core.js').exists() else 'RPG Maker MV')
+        coverage = {'unread_files': [], 'incomplete_files': [], 'unused_unread_files': [],
+                    'decrypted_files': json_reader.decrypted_files, 'indexed_maps': None, 'read_indexed_maps': 0}
+        if tables:
+            coverage['unread_files'].extend(tables.incomplete_files)
+            coverage['incomplete_files'].extend(tables.incomplete_files)
+        map_index_read = False
         try:
             map_infos = read_data(data_dir / ('MapInfos' + extension))
             map_names = ({i: m.get('name', '') for i, m in map_infos.items() if m} if isinstance(map_infos, dict)
                          else {m['id']: m.get('name', '') for m in map_infos if m})
+            map_index_read = True
+            coverage['indexed_maps'] = len(map_names)
         except (OSError, ValueError, TypeError, KeyError) as exc:
             map_names = {}
+            coverage['unread_files'].append('MapInfos' + extension)
+            coverage['incomplete_files'].append('MapInfos' + extension)
             result.warnings.append(f'地图名称索引不可读：{exc}')
+        for map_id in map_names:
+            filename = f'Map{map_id:03d}{extension}'
+            if not (data_dir / filename).is_file():
+                coverage['unread_files'].append(filename)
+                coverage['incomplete_files'].append(filename)
+                result.warnings.append(f'{filename} 未提取：地图索引中有此地图，但文件缺失。')
         files = sorted(data_dir.glob('*' + extension), key=lambda p: p.name)
         for n, file in enumerate(files):
             tick(f'正在读取 {n+1}/{len(files)} · {file.name}')
@@ -388,13 +550,27 @@ def extract(path: str, translation: str = '', progress: Callable | None = None,
                 continue  # Compressed Ruby scripts are executable code, not a dialogue database.
             try:
                 data = read_data(file)
+                if file.stem in ('CommonEvents', 'Troops') and not isinstance(data, list):
+                    raise ValueError('数据结构无效，预期为事件列表。')
+                if re.fullmatch(r'Map\d+', file.stem) and not isinstance(data, dict):
+                    raise ValueError('数据结构无效，预期为地图对象。')
             except (OSError, ValueError) as exc:
-                result.warnings.append(f'{file.name} 未提取：{exc}')
+                if file.name not in coverage['unread_files']:
+                    coverage['unread_files'].append(file.name)
+                unused = bool(map_index_read and re.fullmatch(r'Map\d+', file.stem)
+                              and int(file.stem[3:]) not in map_names)
+                bucket = 'unused_unread_files' if unused else 'incomplete_files'
+                if file.name not in coverage[bucket]:
+                    coverage[bucket].append(file.name)
+                note = '（未在地图索引中，可能为残留文件）' if unused else ''
+                result.warnings.append(f'{file.name} 未提取{note}：{exc}')
                 continue
             if re.fullmatch(r'Map\d+\.json', logical_name) and isinstance(data, dict):
                 map_id = int(file.stem[3:])
+                if map_id in map_names:
+                    coverage['read_indexed_maps'] += 1
                 name = map_names.get(map_id) or data.get('displayName') or '未命名地图'
-                name = clean(tr.find(name) or name)
+                name = clean(tr.find(name, logical_name) or name)
                 group = f'地图 {map_id:03d} · {name}'
                 if data.get('displayName'):
                     add(data['displayName'], group, f'{file.stem}/title', '地图显示名称', '地图名称', f'{file.name}:displayName')
@@ -406,7 +582,7 @@ def extract(path: str, translation: str = '', progress: Callable | None = None,
                         continue
                     eid = event.get('id', 0)
                     ename = event.get('name') or '未命名事件'
-                    ename = clean(tr.find(ename) or ename)
+                    ename = clean(tr.find(ename, logical_name) or ename)
                     for page_idx, page in enumerate(event.get('pages', []), 1):
                         sid = f'{file.stem}/event{eid}/page{page_idx}'
                         scene = f'事件 {eid} · {ename} / 第 {page_idx} 页'
@@ -417,7 +593,7 @@ def extract(path: str, translation: str = '', progress: Callable | None = None,
                     if event:
                         eid = event.get('id', 0)
                         name = event.get('name') or '未命名公共事件'
-                        name = clean(tr.find(name) or name)
+                        name = clean(tr.find(name, logical_name) or name)
                         commands(event.get('list', []), '公共事件', f'common/{eid}', f'公共事件 {eid} · {name}',
                                  f'{file.name}:[{eid}]', f'触发类型 {event.get("trigger", 0)}；开关#{event.get("switchId", 0)}')
             elif logical_name == 'Troops.json' and isinstance(data, list):
@@ -463,23 +639,31 @@ def extract(path: str, translation: str = '', progress: Callable | None = None,
                             add(value, '插件参数', f'plugin/{name}', name, '脚本／插件（待辨识）', f'js/plugins.js:{name}{suffix}')
             except (OSError, ValueError, TypeError, AttributeError) as exc:
                 result.warnings.append(f'插件参数未提取：{exc}')
+                coverage['unread_files'].append('js/plugins.js')
+                coverage['incomplete_files'].append('js/plugins.js')
         result.warnings.append('插件脚本中的动态文字、图片文字和自定义加密数据可能未覆盖。待辨识类别可能含内部参数或注释。')
         if ace:
             result.warnings.append('VX Ace：读取已展开的 .rvdata2；未读取 Scripts.rvdata2 中的压缩 Ruby 脚本，也未读取存档。')
     tick('正在保留未关联场景的翻译…')
     unused = 0
-    for key, value in tr.data.items():
-        if key not in tr.used:
-            unused += 1
-            add(key, '未关联场景', 'unmatched', '翻译字典 · 未关联场景', '未关联场景', f'{Path(translation).name}:条目 {unused}')
+    for key, value, source in tr.unused_entries():
+        unused += 1
+        add(key, '未关联场景', 'unmatched', '翻译字典 · 未关联场景', '未关联场景', source,
+            translated_override=value)
         if unused % 1000 == 0 and cancelled and cancelled():
             raise InterruptedError('已取消提取。')
     result.stats = {'records': len(result.records), 'scenes': len({r.scene_id for r in result.records}),
-                    'translation_entries': len(tr.data), 'unmatched_dictionary': unused,
+                    'translation_entries': tr.entry_count, 'unmatched_dictionary': unused,
                     'categories': dict(Counter(r.category for r in result.records)),
                     'statuses': dict(Counter(r.status for r in result.records))}
     if engine_stats:
         result.stats['unity'] = engine_stats
+    if coverage is not None:
+        result.stats['coverage'] = coverage
+    if tr.tables:
+        language = {'zh-cn': '简体中文', 'zh-hans': '简体中文', 'zh-tw': '繁体中文', 'zh-hant': '繁体中文', 'zh': '中文'}[tr.tables.language]
+        result.stats['translation_source'] = f'Langscore · {language}'
+        result.stats['translation_language'] = tr.tables.language
     if not result.records:
         result.warnings.append('没有提取到文本，请检查游戏数据或翻译文件。')
     tick('提取完成')
