@@ -75,7 +75,7 @@ class ExtractionTests(unittest.TestCase):
         row = next(r for r in result.records if r.raw == 'Hello\nWorld')
         self.assertEqual((row.original, row.translation, row.speaker), ('Hello\nWorld', 'CSV中文对白', '爱丽丝'))
         self.assertEqual(result.stats['translation_language'], 'zh-cn')
-        self.assertEqual(result.translation_file, str(self.root / 'data/translate'))
+        self.assertEqual(Path(result.translation_file).resolve(), (self.root / 'data/translate').resolve())
         explicit = self.run_extract()
         self.assertEqual(next(r.translation for r in explicit.records if r.raw == 'Hello\nWorld'), '你好\n世界')
         self.assertNotIn('translation_language', explicit.stats)

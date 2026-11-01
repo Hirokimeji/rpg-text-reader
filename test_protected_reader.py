@@ -33,9 +33,9 @@ class ProtectedReaderTests(unittest.TestCase):
             root = Path(temp)
             data = packed_fixture(root)
             game = reader.packed_game(root/'Game.exe')
-            self.assertEqual(game.executable, root/'Game.exe')
+            self.assertEqual(game.executable, (root/'Game.exe').resolve())
             (root/'Game.exe.org').write_bytes(data)
-            self.assertEqual(reader.packed_game(root).executable, root/'Game.exe.org')
+            self.assertEqual(reader.packed_game(root).executable, (root/'Game.exe.org').resolve())
             (root/'Data').mkdir()
             for name in ('System.rvdata2', 'MapInfos.rvdata2'):
                 (root/'Data'/name).write_bytes(b'data')
@@ -94,7 +94,7 @@ class ProtectedReaderTests(unittest.TestCase):
             spec = (('runtime.zip', len(value), hashlib.sha256(value).hexdigest(), 'https://example.invalid/runtime.zip'),)
             with patch.dict(os.environ, {}, clear=False), patch.object(reader.sys, 'frozen', True, create=True), patch.object(reader.sys, 'executable', str(root/'台词拾光.exe')), patch.object(reader, 'COMPONENTS', spec), patch.object(reader, 'download') as download:
                 with patch.dict(os.environ, {'TEXTLIGHT_READER_COMPONENTS': ''}):
-                    self.assertEqual(reader.ensure_components(), offline)
+                    self.assertEqual(reader.ensure_components().resolve(), offline.resolve())
                 download.assert_not_called()
 
     def test_cancel_is_propagated_without_falling_back_to_cache(self):
